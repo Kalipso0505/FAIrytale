@@ -5,11 +5,17 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Services\AiService;
+use Dedoc\Scramble\Attributes\ExcludeRouteFromDocs;
+use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use Inertia\Response;
 
+/**
+ * Debug-Endpunkte (nur für Entwicklung)
+ */
+#[Group('Debug (intern)')]
 class DebugController extends Controller
 {
     public function __construct(
@@ -17,15 +23,20 @@ class DebugController extends Controller
     ) {}
 
     /**
-     * Show the debug dashboard
+     * Debug-Dashboard anzeigen
      */
+    #[ExcludeRouteFromDocs]
     public function index(): Response
     {
         return Inertia::render('Debug');
     }
 
     /**
-     * Get all personas with their full knowledge
+     * Alle Personas mit vollständigem Wissen abrufen
+     *
+     * Debug-Endpunkt zum Abrufen aller Persona-Informationen vom AI-Service.
+     *
+     * @operationId getDebugPersonas
      */
     public function personas(): JsonResponse
     {

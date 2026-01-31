@@ -5,6 +5,8 @@ Each persona (Elena, Tom, Lisa, Klaus) is a separate agent with:
 - Access to SHARED knowledge (from GameState)
 - Their own PRIVATE knowledge (from persona_data)
 - Their own dynamic state (stress, lies_told, etc.)
+
+Prompts are loaded from the Laravel database via PromptService.
 """
 
 import logging
@@ -14,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .state import GameState, Message
+from services.prompt_service import get_prompt_service
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ class PersonaAgent:
         """
         Build the system prompt for this persona.
         
+        Uses the prompt template from the database (via PromptService).
         Combines:
         - Shared knowledge (from state)
         - Private knowledge (from persona_data)
@@ -67,56 +71,46 @@ class PersonaAgent:
         stress = agent_state.get("stress_level", 0.0)
         interrogation_count = agent_state.get("interrogation_count", 0)
         
-        # Base prompt with role
-        prompt = f"""Du bist {self.name}, {self.role} bei der InnoTech GmbH.
-
-=== DEINE PERSÖNLICHKEIT ===
-{self.personality}
-
-=== DEIN PRIVATES WISSEN (nur du weißt das, verrate es nicht direkt!) ===
-{self.private_knowledge}
-
-=== WAS ALLE WISSEN (öffentliche Fakten) ===
-{state["shared_facts"]}
-
-=== ZEITLEISTE DES FALLS ===
-{state["timeline"]}
-
-=== WAS DU ÜBER ANDERE WEISST ===
-{self.knows_about_others}
-
-=== VERHALTENSREGELN ===
-1. Bleibe IMMER in deiner Rolle als {self.name}
-2. Antworte auf Deutsch
-3. Halte Antworten kurz (2-4 Sätze), wie in einem echten Gespräch
-4. Verrate deine Geheimnisse NIEMALS direkt, aber:
-   - Zeige Nervosität oder Unbehagen bei heiklen Themen
-   - Werde bei wiederholtem Nachfragen etwas offener
-   - Mache kleine "Versprecher" die Hinweise geben könnten
-5. Wenn du nach anderen Personen gefragt wirst, nutze dein Wissen über sie
-6. Du weißt NICHT wer der Mörder ist (außer du bist es selbst)
-7. Beantworte nur was gefragt wird, erzähle nicht proaktiv alles
-"""
-        
-        # Add stress-based behavior modifications
+        # Build stress modifier based on current state
+        stress_modifier = ""
         if stress > 0.3:
-            prompt += f"""
+            stress_modifier += f"""
 === AKTUELLER ZUSTAND ===
 Stress-Level: {stress:.0%}
 Du wirst merklich nervöser. Deine Antworten werden kürzer, du zögerst mehr.
 """
         
         if stress > 0.6:
-            prompt += """Du bist sehr gestresst. Du machst kleine Fehler in deinen Aussagen.
+            stress_modifier += """Du bist sehr gestresst. Du machst kleine Fehler in deinen Aussagen.
 Bei direkter Konfrontation könntest du dich verplappern.
 """
         
         if interrogation_count > 5:
-            prompt += f"""
+            stress_modifier += f"""
 Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsichtiger.
 """
         
-        return prompt
+        # Get formatted prompt from PromptService
+        prompt_service = get_prompt_service()
+        
+        # Extract company name from scenario_name or use default
+        company_name = state.get("scenario_name", "InnoTech GmbH")
+        if "InnoTech" not in company_name:
+            company_name = "der Firma"
+        else:
+            company_name = "InnoTech GmbH"
+        
+        return prompt_service.format_persona_prompt(
+            persona_name=self.name,
+            persona_role=self.role,
+            company_name=company_name,
+            personality=self.personality,
+            private_knowledge=self.private_knowledge,
+            shared_facts=state["shared_facts"],
+            timeline=state["timeline"],
+            knows_about_others=self.knows_about_others,
+            stress_modifier=stress_modifier
+        )
     
     def _get_persona_history(self, state: GameState) -> list:
         """

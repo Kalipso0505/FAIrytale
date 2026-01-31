@@ -2,6 +2,7 @@
 Scenario Generator Service
 
 Generates new murder mystery scenarios using GPT-4 and a detailed prompt.
+Prompts are loaded from the Laravel database via PromptService.
 """
 
 import os
@@ -12,14 +13,22 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
+from .prompt_service import get_prompt_service
+
 logger = logging.getLogger(__name__)
+
+# Fallback prompt in case database is not available
+FALLBACK_SCENARIO_PROMPT = """Du bist ein kreativer Autor für Murder Mystery Spiele.
+Erstelle ein spannendes Mordfall-Szenario mit mindestens 4 Verdächtigen.
+Gib das Ergebnis als Python Dictionary aus."""
 
 
 class ScenarioGenerator:
     """
     Generates murder mystery scenarios using AI.
     
-    Uses the SCENARIO_GENERATOR_PROMPT.md to guide scenario creation.
+    Loads the prompt template from the database via PromptService.
+    Falls back to local file if database is unavailable.
     """
     
     def __init__(self, model_name: str = "gpt-4o-mini"):
@@ -29,15 +38,27 @@ class ScenarioGenerator:
             api_key=os.getenv("OPENAI_API_KEY")
         )
         
-        # Load the prompt template
-        prompt_path = os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "SCENARIO_GENERATOR_PROMPT.md"
-        )
+        # Try to load prompt from database
+        prompt_service = get_prompt_service()
+        self.prompt_template = prompt_service.get_prompt("scenario_generator_prompt")
         
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            self.prompt_template = f.read()
+        if self.prompt_template:
+            logger.info("✅ Loaded scenario_generator_prompt from database")
+        else:
+            # Fallback to local file
+            logger.warning("⚠️ Could not load prompt from database, trying local file...")
+            try:
+                prompt_path = os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "SCENARIO_GENERATOR_PROMPT.md"
+                )
+                with open(prompt_path, "r", encoding="utf-8") as f:
+                    self.prompt_template = f.read()
+                logger.info("✅ Loaded scenario prompt from local file")
+            except FileNotFoundError:
+                logger.error("❌ No prompt available, using minimal fallback")
+                self.prompt_template = FALLBACK_SCENARIO_PROMPT
         
         logger.info(f"ScenarioGenerator initialized with model: {model_name}")
     

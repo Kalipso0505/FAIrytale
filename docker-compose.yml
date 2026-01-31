@@ -24,6 +24,7 @@ services:
         environment:
             - OPENAI_API_KEY=${OPENAI_API_KEY}
             - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+            - LARAVEL_API_URL=http://nginx:80
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
             interval: 30s

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\PromptTemplateController;
 use App\Http\Controllers\DebugController;
 use App\Http\Controllers\GameController;
 use Illuminate\Support\Facades\Route;
@@ -27,4 +28,11 @@ Route::prefix('debug')->name('debug.')->group(function () {
 
 Route::prefix('api/debug')->name('api.debug.')->group(function () {
     Route::get('/personas', [DebugController::class, 'personas'])->name('personas');
+});
+
+// Prompt Templates API (für AI-Service und Content-Management)
+Route::prefix('api/prompts')->name('api.prompts.')->group(function () {
+    Route::get('/', [PromptTemplateController::class, 'index'])->name('index');
+    Route::get('/all', [PromptTemplateController::class, 'all'])->name('all');
+    Route::get('/{key}', [PromptTemplateController::class, 'show'])->name('show');
 });

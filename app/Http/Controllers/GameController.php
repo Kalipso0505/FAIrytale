@@ -8,12 +8,17 @@ use App\Models\ChatMessage;
 use App\Models\Game;
 use App\Services\AiService;
 use Dedoc\Scramble\Attributes\ExcludeRouteFromDocs;
+use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
+/**
+ * Murder Mystery Spiel-Endpunkte
+ */
+#[Group('Game')]
 class GameController extends Controller
 {
     public function __construct(

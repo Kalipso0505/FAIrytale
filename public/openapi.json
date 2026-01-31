@@ -9,13 +9,158 @@
             "url": "http://localhost/api"
         }
     ],
+    "tags": [
+        {
+            "name": "Game"
+        },
+        {
+            "name": "Debug (intern)"
+        },
+        {
+            "name": "AI-Service (intern)"
+        }
+    ],
     "paths": {
+        "/prompts": {
+            "get": {
+                "operationId": "listPromptTemplates",
+                "description": "Gibt alle verf\u00fcgbaren Prompt-Templates mit Key, Name und Body zur\u00fcck.",
+                "summary": "Alle Prompt-Templates auflisten",
+                "tags": [
+                    "AI-Service (intern)"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "prompts": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/PromptTemplate"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "prompts"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/prompts/all": {
+            "get": {
+                "operationId": "getAllPromptsMap",
+                "description": "Optimierter Endpunkt f\u00fcr den AI-Service. Gibt alle Prompts\nals einfaches Key\u2192Body Dictionary zur\u00fcck.",
+                "summary": "Alle Prompts als Key-Body-Map",
+                "tags": [
+                    "AI-Service (intern)"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/prompts/{key}": {
+            "get": {
+                "operationId": "getPromptTemplate",
+                "description": "Gibt ein Prompt-Template anhand seines eindeutigen Keys zur\u00fcck.",
+                "summary": "Einzelnes Prompt-Template abrufen",
+                "tags": [
+                    "AI-Service (intern)"
+                ],
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "body": {
+                                            "type": "string"
+                                        },
+                                        "updated_at": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "key",
+                                        "name",
+                                        "body",
+                                        "updated_at"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "enum": [
+                                                "Prompt template not found"
+                                            ]
+                                        },
+                                        "key": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "key"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/debug/personas": {
             "get": {
-                "operationId": "debug.personas",
-                "summary": "Get all personas with their full knowledge",
+                "operationId": "getDebugPersonas",
+                "description": "Debug-Endpunkt zum Abrufen aller Persona-Informationen vom AI-Service.",
+                "summary": "Alle Personas mit vollst\u00e4ndigem Wissen abrufen",
                 "tags": [
-                    "Debug"
+                    "Debug (intern)"
                 ],
                 "responses": {
                     "500": {
@@ -62,6 +207,106 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        "/game/generate-and-start": {
+            "post": {
+                "operationId": "game.generate-and-start",
+                "summary": "Generate a new scenario and start game",
+                "tags": [
+                    "Game"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "user_input": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "maxLength": 500
+                                    },
+                                    "difficulty": {
+                                        "type": "string",
+                                        "enum": [
+                                            "einfach",
+                                            "mittel",
+                                            "schwer"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "difficulty"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "500": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "enum": [
+                                                "Szenario-Generierung fehlgeschlagen"
+                                            ]
+                                        },
+                                        "details": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "details"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "game_id": {
+                                            "type": "string"
+                                        },
+                                        "scenario_name": {},
+                                        "setting": {},
+                                        "victim": {},
+                                        "personas": {},
+                                        "intro_message": {}
+                                    },
+                                    "required": [
+                                        "game_id",
+                                        "scenario_name",
+                                        "setting",
+                                        "victim",
+                                        "personas",
+                                        "intro_message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             }
@@ -348,13 +593,7 @@
                                         "format": "uuid"
                                     },
                                     "persona_slug": {
-                                        "type": "string",
-                                        "enum": [
-                                            "elena",
-                                            "tom",
-                                            "lisa",
-                                            "klaus"
-                                        ]
+                                        "type": "string"
                                     },
                                     "message": {
                                         "type": "string",
@@ -534,13 +773,7 @@
                                         "format": "uuid"
                                     },
                                     "accused_persona": {
-                                        "type": "string",
-                                        "enum": [
-                                            "elena",
-                                            "tom",
-                                            "lisa",
-                                            "klaus"
-                                        ]
+                                        "type": "string"
                                     }
                                 },
                                 "required": [
@@ -565,43 +798,14 @@
                                         "message": {
                                             "type": "string",
                                             "enum": [
-                                                "Richtig! Tom Berger ist der M\u00f6rder. Er hat Marcus Weber im Affekt erschlagen, nachdem dieser ihn f\u00e4lschlicherweise des Geheimnisverrats beschuldigt hatte.",
-                                                "Falsch! Der wahre M\u00f6rder ist Tom Berger. Er hat Marcus erschlagen, nachdem dieser ihn ungerechtfertigt des Geheimnisverrats beschuldigt hatte."
-                                            ]
-                                        },
-                                        "solution": {
-                                            "type": "object",
-                                            "properties": {
-                                                "murderer": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "Tom Berger"
-                                                    ]
-                                                },
-                                                "motive": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "Marcus beschuldigte Tom f\u00e4lschlicherweise, Firmengeheimnisse gestohlen zu haben und drohte mit K\u00fcndigung."
-                                                    ]
-                                                },
-                                                "weapon": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "Bronzene \"Innovator des Jahres\" Troph\u00e4e"
-                                                    ]
-                                                }
-                                            },
-                                            "required": [
-                                                "murderer",
-                                                "motive",
-                                                "weapon"
+                                                "Richtig! Du hast den Fall gel\u00f6st!",
+                                                "Falsch! Das war nicht der M\u00f6rder."
                                             ]
                                         }
                                     },
                                     "required": [
                                         "correct",
-                                        "message",
-                                        "solution"
+                                        "message"
                                     ]
                                 }
                             }
@@ -636,6 +840,48 @@
         }
     },
     "components": {
+        "schemas": {
+            "PromptTemplate": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "id",
+                    "key",
+                    "name",
+                    "body",
+                    "created_at",
+                    "updated_at"
+                ],
+                "title": "PromptTemplate"
+            }
+        },
         "responses": {
             "ValidationException": {
                 "description": "Validation error",

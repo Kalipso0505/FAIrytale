@@ -9,6 +9,7 @@ use App\Models\Game;
 use App\Services\AiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -23,9 +24,56 @@ class GameController extends Controller
      */
     public function index(): Response
     {
-        return Inertia::render('Game', [
-            'personas' => $this->getPersonas(),
+        return Inertia::render('Game');
+    }
+
+    /**
+     * Generate a new scenario and start game
+     */
+    public function generateAndStart(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_input' => 'nullable|string|max:500',
+            'difficulty' => 'required|in:einfach,mittel,schwer',
         ]);
+
+        // Create game entry first
+        $game = Game::create([
+            'user_id' => $request->user()?->id,
+            'scenario_slug' => 'generated_'.Str::random(8),
+            'status' => 'active',
+            'revealed_clues' => [],
+            'expires_at' => now()->addMinutes(60),
+        ]);
+
+        try {
+            // Generate scenario via AI Service
+            $scenarioResult = $this->aiService->generateScenario(
+                $game->id,
+                $validated['user_input'] ?? '',
+                $validated['difficulty']
+            );
+
+            // Initialize game with generated scenario
+            $gameInfo = $this->aiService->startGame($game->id);
+
+            return response()->json([
+                'game_id' => $game->id,
+                'scenario_name' => $gameInfo['scenario_name'],
+                'setting' => $gameInfo['setting'],
+                'victim' => $gameInfo['victim'],
+                'personas' => $gameInfo['personas'],
+                'intro_message' => $gameInfo['intro_message'],
+            ]);
+        } catch (\Exception $e) {
+            // Cleanup on failure
+            $game->delete();
+
+            return response()->json([
+                'error' => 'Szenario-Generierung fehlgeschlagen',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
     /**
@@ -64,7 +112,7 @@ class GameController extends Controller
     {
         $validated = $request->validate([
             'game_id' => 'required|uuid|exists:games,id',
-            'persona_slug' => 'required|string|in:elena,tom,lisa,klaus',
+            'persona_slug' => 'required|string',
             'message' => 'required|string|max:1000',
         ]);
 
@@ -161,7 +209,7 @@ class GameController extends Controller
     {
         $validated = $request->validate([
             'game_id' => 'required|uuid|exists:games,id',
-            'accused_persona' => 'required|string|in:elena,tom,lisa,klaus',
+            'accused_persona' => 'required|string',
         ]);
 
         $game = Game::findOrFail($validated['game_id']);
@@ -170,21 +218,25 @@ class GameController extends Controller
             return response()->json(['error' => 'Game is not active'], 400);
         }
 
-        // Tom is the murderer
+        // Tom is the murderer (for default scenario)
+        // For generated scenarios, we need to get this from AI service
         $correct = $validated['accused_persona'] === 'tom';
         $game->solve($validated['accused_persona'], $correct);
 
-        return response()->json([
+        $result = [
             'correct' => $correct,
             'message' => $correct
-                ? 'Richtig! Tom Berger ist der Mörder. Er hat Marcus Weber im Affekt erschlagen, nachdem dieser ihn fälschlicherweise des Geheimnisverrats beschuldigt hatte.'
-                : 'Falsch! Der wahre Mörder ist Tom Berger. Er hat Marcus erschlagen, nachdem dieser ihn ungerechtfertigt des Geheimnisverrats beschuldigt hatte.',
-            'solution' => [
-                'murderer' => 'Tom Berger',
-                'motive' => 'Marcus beschuldigte Tom fälschlicherweise, Firmengeheimnisse gestohlen zu haben und drohte mit Kündigung.',
-                'weapon' => 'Bronzene "Innovator des Jahres" Trophäe',
-            ],
-        ]);
+                ? 'Richtig! Du hast den Fall gelöst!'
+                : 'Falsch! Das war nicht der Mörder.',
+        ];
+
+        // Cleanup: Delete game and messages if solved
+        if ($correct) {
+            $game->messages()->delete();
+            $game->delete();
+        }
+
+        return response()->json($result);
     }
 
     /**

@@ -7,6 +7,7 @@ import { ChatWindow } from '@/Components/Game/ChatWindow';
 import { GameHeader } from '@/Components/Game/GameHeader';
 import { AccuseModal } from '@/Components/Game/AccuseModal';
 import { CaseInfoPanel } from '@/Components/Game/CaseInfoPanel';
+import { StartScreen } from '@/Components/Game/StartScreen';
 import axios from 'axios';
 
 interface Persona {
@@ -29,20 +30,28 @@ interface Message {
 
 interface GameState {
     gameId: string | null;
-    status: 'idle' | 'loading' | 'active' | 'solved' | 'failed';
+    status: 'not-started' | 'loading' | 'idle' | 'active' | 'solved' | 'failed';
+    scenarioName: string;
+    setting: string;
+    victim: string;
+    personas: Persona[];
     introMessage: string;
     revealedClues: string[];
     messages: Record<string, Message[]>; // Per persona
 }
 
 interface Props {
-    personas: Persona[];
+    // Empty - personas are now loaded dynamically per game
 }
 
-export default function Game({ personas }: Props) {
+export default function Game({}: Props) {
     const [gameState, setGameState] = useState<GameState>({
         gameId: null,
-        status: 'idle',
+        status: 'not-started',
+        scenarioName: '',
+        setting: '',
+        victim: '',
+        personas: [],
         introMessage: '',
         revealedClues: [],
         messages: {},
@@ -53,8 +62,12 @@ export default function Game({ personas }: Props) {
     const [solution, setSolution] = useState<{
         correct: boolean;
         message: string;
-        solution: { murderer: string; motive: string; weapon: string };
     } | null>(null);
+    
+    // StartScreen state
+    const [scenarioInput, setScenarioInput] = useState('');
+    const [difficulty, setDifficulty] = useState<'einfach' | 'mittel' | 'schwer'>('mittel');
+    const [isGenerating, setIsGenerating] = useState(false);
     
     // Track read message count per persona (for unread badge)
     const [readCounts, setReadCounts] = useState<Record<string, number>>({});
@@ -202,15 +215,23 @@ export default function Game({ personas }: Props) {
         };
     }, [isResizingLeft, isResizingRight]);
 
-    const startGame = async () => {
-        setIsLoading(true);
+    const generateAndStartGame = async () => {
+        setIsGenerating(true);
         try {
-            const response = await axios.post('/game/start');
+            const response = await axios.post('/game/generate-and-start', {
+                user_input: scenarioInput,
+                difficulty: difficulty,
+            });
+            
             const data = response.data;
             
             setGameState({
                 gameId: data.game_id,
                 status: 'active',
+                scenarioName: data.scenario_name,
+                setting: data.setting,
+                victim: data.victim,
+                personas: data.personas,
                 introMessage: data.intro_message,
                 revealedClues: [],
                 messages: {},
@@ -220,10 +241,13 @@ export default function Game({ personas }: Props) {
             // Reset pinned and saved messages for new game
             setPinnedMessages(new Set());
             setSavedMessages(new Set());
-        } catch (error) {
-            console.error('Failed to start game:', error);
+            // Reset selected persona
+            setSelectedPersona(null);
+        } catch (error: any) {
+            console.error('Failed to generate scenario:', error);
+            alert(error.response?.data?.error || 'Szenario-Generierung fehlgeschlagen. Bitte versuche es erneut.');
         } finally {
-            setIsLoading(false);
+            setIsGenerating(false);
         }
     };
 
@@ -363,136 +387,19 @@ export default function Game({ personas }: Props) {
         }
     };
 
-    // Idle state - show start screen
-    if (gameState.status === 'idle') {
+    // Not started state - show start screen
+    if (gameState.status === 'not-started') {
         return (
             <>
-                <Head title="CLASSIFIED - CASE INITIALIZATION" />
-                <div className="min-h-screen flex items-center justify-center p-6">
-                    <div className="max-w-4xl w-full cia-bg-panel border border-white/10 shadow-lg shadow-black/20">
-                        {/* Top Bar */}
-                        <div className="bg-black/50 border-b border-white/10 px-4 py-2 flex items-center justify-between text-xs cia-text">
-                            <div className="flex items-center gap-4">
-                                <span className="text-white">CLASSIFIED</span>
-                                <span className="text-gray-400">CASE FILE: INNOTECH-2024</span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <span className="text-gray-400">STATUS:</span>
-                                <span className="cia-text-yellow">PENDING INITIALIZATION</span>
-                            </div>
-                        </div>
-                        
-                        <div className="p-8 space-y-8">
-                            {/* Header */}
-                            <div className="text-center space-y-4 border-b border-white/10 pb-6">
-                                <div className="text-6xl mb-2">🔍</div>
-                                <h1 className="text-4xl font-bold text-white uppercase tracking-wider cia-text">
-                                    CASE FILE: INNOTECH
-                                </h1>
-                                <p className="text-lg text-gray-300 cia-text">
-                                    CLASSIFIED INVESTIGATION - AUTHORIZED PERSONNEL ONLY
-                                </p>
-                            </div>
-                            
-                            {/* Case Briefing Document */}
-                            <div className="cia-document p-6 space-y-4">
-                                <div className="border-b-2 border-black pb-2 mb-4">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h2 className="text-xl font-bold uppercase">OFFICIAL INCIDENT REPORT</h2>
-                                            <p className="text-sm text-gray-600">CASE #INNOTECH-2024-001</p>
-                                        </div>
-                                        <div className="text-right text-xs">
-                                            <p>DATE: {new Date().toLocaleDateString('de-DE')}</p>
-                                            <p>CLASSIFICATION: TOP SECRET</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div className="space-y-3 text-sm">
-                                    <div>
-                                        <span className="font-bold uppercase">VICTIM:</span>
-                                        <span className="ml-2">MARCUS WEBER, CFO - INNOTECH GMBH</span>
-                                    </div>
-                                    <div>
-                                        <span className="font-bold uppercase">STATUS:</span>
-                                        <span className="ml-2 text-red-600">DECEASED</span>
-                                    </div>
-                                    <div>
-                                        <span className="font-bold uppercase">LOCATION:</span>
-                                        <span className="ml-2">OFFICE PREMISES - INNOTECH HEADQUARTERS</span>
-                                    </div>
-                                    <div>
-                                        <span className="font-bold uppercase">TIME OF INCIDENT:</span>
-                                        <span className="ml-2">SUNDAY EVENING, 20:00 - 23:00 HOURS</span>
-                                    </div>
-                                    <div className="pt-2 border-t border-gray-300">
-                                        <span className="font-bold uppercase">OBJECTIVE:</span>
-                                        <span className="ml-2">INTERROGATE FOUR SUSPECTS AND IDENTIFY THE PERPETRATOR</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Suspects Grid */}
-                            <div>
-                                <h3 className="text-sm uppercase text-white cia-text mb-4 tracking-wider">
-                                    SUSPECTS IN CUSTODY
-                                </h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    {personas.map(persona => (
-                                        <div 
-                                            key={persona.slug}
-                                            className="cia-bg-dark border border-white/10 p-3 hover:border-white/20 transition-colors"
-                                        >
-                                            {persona.image ? (
-                                                <div className="w-24 h-32 mx-auto mb-2 rounded overflow-hidden border-2 border-white/10">
-                                                    <img 
-                                                        src={persona.image} 
-                                                        alt={persona.name}
-                                                        className="w-full h-full object-cover"
-                                                        onError={(e) => {
-                                                            const target = e.target as HTMLImageElement;
-                                                            target.style.display = 'none';
-                                                            const parent = target.parentElement;
-                                                            if (parent) {
-                                                                parent.innerHTML = `<div class="text-2xl flex items-center justify-center w-full h-full">${persona.emoji}</div>`;
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="text-2xl mb-2 text-center">{persona.emoji}</div>
-                                            )}
-                                            <div className="text-sm font-bold text-white text-center cia-text mb-1">{persona.name}</div>
-                                            <div className="text-xs text-gray-400 text-center cia-text">{persona.role}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            {/* Init Button */}
-                            <button 
-                                onClick={startGame} 
-                                disabled={isLoading}
-                                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-4 px-6 uppercase cia-text transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isLoading ? 'INITIALIZING...' : 'INITIATE INVESTIGATION'}
-                            </button>
-                        </div>
-                        
-                        {/* Bottom Status Bar */}
-                        <div className="bg-black/50 border-t border-white/10 px-4 py-2 flex items-center justify-between text-xs cia-text">
-                            <div className="flex items-center gap-4">
-                                <span className="text-gray-400">SECURITY:</span>
-                                <span className="text-white">SEC 113</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className="cia-text-yellow cia-pulse">●</span>
-                                <span className="text-gray-400">SYSTEM READY</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <Head title="Murder Mystery - Start" />
+                <StartScreen
+                    scenarioInput={scenarioInput}
+                    setScenarioInput={setScenarioInput}
+                    difficulty={difficulty}
+                    setDifficulty={setDifficulty}
+                    isGenerating={isGenerating}
+                    onStartGame={generateAndStartGame}
+                />
             </>
         );
     }
@@ -511,7 +418,7 @@ export default function Game({ personas }: Props) {
                         {/* Top Bar */}
                         <div className="bg-black/50 border-b border-white/10 px-4 py-2 flex items-center justify-between text-xs cia-text">
                             <div className="flex items-center gap-4">
-                                <span className="text-white">CASE FILE: INNOTECH-2024</span>
+                                <span className="text-white">CASE FILE: {gameState.scenarioName || 'UNKNOWN'}</span>
                                 <span className="text-gray-400">STATUS:</span>
                                 <span className={solution.correct ? 'cia-text-yellow' : 'text-red-400'}>
                                     {solution.correct ? 'CLOSED' : 'FAILED'}
@@ -538,27 +445,11 @@ export default function Game({ personas }: Props) {
                             <div className="cia-document p-6 space-y-4">
                                 <div className="border-b-2 border-black pb-2 mb-4">
                                     <h2 className="text-xl font-bold uppercase">FINAL CASE REPORT</h2>
-                                    <p className="text-xs text-gray-600">CASE #INNOTECH-2024-001</p>
+                                    <p className="text-xs text-gray-600">CASE #{gameState.gameId?.slice(0, 8).toUpperCase()}</p>
                                 </div>
                                 
                                 <div className="space-y-3 text-sm">
-                                    <p className="font-bold uppercase">{solution.message}</p>
-                                    
-                                    <div className="pt-3 border-t border-gray-300 space-y-2">
-                                        <h3 className="font-bold uppercase mb-2">CASE RESOLUTION:</h3>
-                                        <div>
-                                            <span className="font-bold">PERPETRATOR:</span>
-                                            <span className="ml-2">{solution.solution.murderer}</span>
-                                        </div>
-                                        <div>
-                                            <span className="font-bold">MOTIVE:</span>
-                                            <span className="ml-2">{solution.solution.motive}</span>
-                                        </div>
-                                        <div>
-                                            <span className="font-bold">WEAPON:</span>
-                                            <span className="ml-2">{solution.solution.weapon}</span>
-                                        </div>
-                                    </div>
+                                    <p className="font-bold">{solution.message}</p>
                                 </div>
                             </div>
                             
@@ -566,12 +457,18 @@ export default function Game({ personas }: Props) {
                                 onClick={() => {
                                     setGameState({
                                         gameId: null,
-                                        status: 'idle',
+                                        status: 'not-started',
+                                        scenarioName: '',
+                                        setting: '',
+                                        victim: '',
+                                        personas: [],
                                         introMessage: '',
                                         revealedClues: [],
                                         messages: {},
                                     });
                                     setSolution(null);
+                                    setScenarioInput('');
+                                    setDifficulty('mittel');
                                 }}
                                 className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-4 px-6 uppercase cia-text transition-all"
                             >
@@ -613,11 +510,11 @@ export default function Game({ personas }: Props) {
                         style={{ width: `${leftWidth}px`, minWidth: '200px', maxWidth: '600px' }}
                     >
                         <PersonaSelector 
-                            personas={personas}
+                            personas={gameState.personas}
                             selectedPersona={selectedPersona}
                             onSelect={handlePersonaSelect}
                             messageCount={Object.fromEntries(
-                                personas.map(p => {
+                                gameState.personas.map(p => {
                                     const totalMessages = gameState.messages[p.slug]?.length || 0;
                                     const readCount = readCounts[p.slug] || 0;
                                     const unreadCount = Math.max(0, totalMessages - readCount);
@@ -692,7 +589,7 @@ export default function Game({ personas }: Props) {
                             gameId={gameState.gameId}
                             pinnedMessages={pinnedMessages}
                             messages={gameState.messages}
-                            personas={personas}
+                            personas={gameState.personas}
                         />
                     </div>
                 </div>
@@ -701,7 +598,7 @@ export default function Game({ personas }: Props) {
                 <AccuseModal 
                     isOpen={showAccuseModal}
                     onClose={() => setShowAccuseModal(false)}
-                    personas={personas}
+                    personas={gameState.personas}
                     onAccuse={accusePersona}
                     isLoading={isLoading}
                 />

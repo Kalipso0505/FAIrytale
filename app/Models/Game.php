@@ -20,6 +20,7 @@ class Game extends Model
         'revealed_clues',
         'game_state',
         'accused_persona',
+        'expires_at',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class Game extends Model
         return [
             'revealed_clues' => 'array',
             'game_state' => 'array',
+            'expires_at' => 'datetime',
         ];
     }
 
@@ -43,6 +45,11 @@ class Game extends Model
     public function isActive(): bool
     {
         return $this->status === 'active';
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->expires_at && now()->isAfter($this->expires_at);
     }
 
     public function solve(string $accusedPersona, bool $correct): void

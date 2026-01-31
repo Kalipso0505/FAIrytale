@@ -19,6 +19,7 @@ from agents.gamemaster_agent import GameMasterAgent
 from agents.graph import create_murder_mystery_graph, get_graph_visualization
 from agents.state import Message
 from scenarios.office_murder import OFFICE_MURDER_SCENARIO
+from services.scenario_generator import ScenarioGenerator
 
 # Setup logging
 logging.basicConfig(
@@ -34,35 +35,33 @@ load_dotenv()
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY environment variable is required")
 
-# Global instances
-gamemaster: Optional[GameMasterAgent] = None
-murder_graph = None
+# Global instances - now per game_id
+gamemasters: dict[str, GameMasterAgent] = {}
+murder_graphs: dict[str, any] = {}
+scenario_generator: Optional[ScenarioGenerator] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup"""
-    global gamemaster, murder_graph
+    global gamemasters, murder_graphs, scenario_generator
     
     logger.info("Initializing Murder Mystery Multi-Agent System...")
     
-    # Initialize GameMaster with all persona agents
-    gamemaster = GameMasterAgent(
-        scenario=OFFICE_MURDER_SCENARIO,
+    # Initialize Scenario Generator
+    scenario_generator = ScenarioGenerator(
         model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     )
     
-    # Create the LangGraph
-    murder_graph = create_murder_mystery_graph(gamemaster)
-    
     logger.info("Multi-Agent System ready!")
-    logger.info(f"Agents: {list(gamemaster.persona_agents.keys())}")
+    logger.info("GameMasters will be created dynamically per game")
     
     yield
     
     # Cleanup
-    gamemaster = None
-    murder_graph = None
+    gamemasters.clear()
+    murder_graphs.clear()
+    scenario_generator = None
     logger.info("Shutdown complete")
 
 
@@ -118,6 +117,20 @@ class GameStartResponse(BaseModel):
     intro_message: str
 
 
+class ScenarioGenerateRequest(BaseModel):
+    """Request for generating a new scenario"""
+    game_id: str
+    user_input: str = ""
+    difficulty: str = "mittel"
+
+
+class ScenarioGenerateResponse(BaseModel):
+    """Response for scenario generation"""
+    success: bool
+    game_id: str
+    scenario_name: str
+
+
 # === API Endpoints ===
 
 @app.get("/health")
@@ -128,15 +141,65 @@ async def health_check():
         "service": "murder-mystery-ai",
         "version": "2.0.0",
         "multi_agent": True,
-        "agents": list(gamemaster.persona_agents.keys()) if gamemaster else []
+        "active_games": len(gamemasters)
     }
+
+
+@app.post("/scenario/generate", response_model=ScenarioGenerateResponse)
+async def generate_scenario(request: ScenarioGenerateRequest):
+    """
+    Generate a new scenario and initialize GameMaster for this game.
+    
+    This creates a unique scenario for the game_id.
+    """
+    if not scenario_generator:
+        raise HTTPException(status_code=503, detail="Scenario generator not initialized")
+    
+    logger.info(f"Generating scenario for game {request.game_id}")
+    
+    try:
+        # Generate the scenario
+        scenario = scenario_generator.generate(
+            user_input=request.user_input,
+            difficulty=request.difficulty
+        )
+        
+        # Create GameMaster for this game
+        gamemaster = GameMasterAgent(
+            scenario=scenario,
+            model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        )
+        
+        # Create the graph
+        graph = create_murder_mystery_graph(gamemaster)
+        
+        # Store them
+        gamemasters[request.game_id] = gamemaster
+        murder_graphs[request.game_id] = graph
+        
+        logger.info(f"✅ Game {request.game_id} initialized with scenario: {scenario['name']}")
+        
+        return ScenarioGenerateResponse(
+            success=True,
+            game_id=request.game_id,
+            scenario_name=scenario["name"]
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate scenario: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Scenario generation failed: {str(e)}")
 
 
 @app.post("/game/start", response_model=GameStartResponse)
 async def start_game(request: GameStartRequest):
     """Initialize a new game session"""
+    gamemaster = gamemasters.get(request.game_id)
+    
     if not gamemaster:
-        raise HTTPException(status_code=503, detail="GameMaster not initialized")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Game {request.game_id} not found. Generate scenario first."
+        )
     
     # Initialize game state
     gamemaster.initialize_game(request.game_id)
@@ -154,8 +217,14 @@ async def chat_with_persona(request: ChatRequest):
     
     This is the main endpoint that invokes the multi-agent system.
     """
+    gamemaster = gamemasters.get(request.game_id)
+    murder_graph = murder_graphs.get(request.game_id)
+    
     if not gamemaster or not murder_graph:
-        raise HTTPException(status_code=503, detail="Multi-agent system not initialized")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {request.game_id} not found. Start a game first."
+        )
     
     # Validate persona
     valid_personas = list(gamemaster.persona_agents.keys())
@@ -207,20 +276,28 @@ async def chat_with_persona(request: ChatRequest):
 
 
 @app.get("/personas")
-async def get_personas():
-    """Get list of available personas"""
+async def get_personas(game_id: str):
+    """Get list of available personas for a game"""
+    gamemaster = gamemasters.get(game_id)
+    
     if not gamemaster:
-        raise HTTPException(status_code=503, detail="GameMaster not initialized")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {game_id} not found"
+        )
     
     return {
         "personas": [
             {
-                "slug": p["slug"],
-                "name": p["name"],
-                "role": p["role"],
-                "description": p["public_description"]
+                "slug": agent.slug,
+                "name": agent.name,
+                "role": agent.role,
+                "description": persona_data["public_description"]
             }
-            for p in OFFICE_MURDER_SCENARIO["personas"]
+            for agent, persona_data in zip(
+                gamemaster.persona_agents.values(),
+                gamemaster.scenario["personas"]
+            )
         ]
     }
 
@@ -228,10 +305,15 @@ async def get_personas():
 # === Debug Endpoints ===
 
 @app.get("/debug/personas")
-async def get_personas_debug():
+async def get_personas_debug(game_id: str):
     """Get all personas with their full knowledge for debugging"""
+    gamemaster = gamemasters.get(game_id)
+    
     if not gamemaster:
-        raise HTTPException(status_code=503, detail="GameMaster not initialized")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {game_id} not found"
+        )
     
     return {
         "personas": gamemaster.get_all_personas_debug_info()
@@ -247,12 +329,17 @@ async def get_graph_debug():
 @app.get("/debug/game/{game_id}/state")
 async def get_game_state_debug(game_id: str):
     """Get the full game state for debugging"""
+    gamemaster = gamemasters.get(game_id)
+    
     if not gamemaster:
-        raise HTTPException(status_code=503, detail="GameMaster not initialized")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {game_id} not found"
+        )
     
     state = gamemaster.get_game_state(game_id)
     if not state:
-        raise HTTPException(status_code=404, detail="Game not found")
+        raise HTTPException(status_code=404, detail="Game state not initialized")
     
     return {
         "game_id": game_id,
@@ -266,10 +353,15 @@ async def get_game_state_debug(game_id: str):
 
 
 @app.get("/debug/agents")
-async def get_agents_info():
-    """Get info about all loaded agents"""
+async def get_agents_info(game_id: str):
+    """Get info about all loaded agents for a game"""
+    gamemaster = gamemasters.get(game_id)
+    
     if not gamemaster:
-        raise HTTPException(status_code=503, detail="GameMaster not initialized")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {game_id} not found"
+        )
     
     return {
         "agents": [

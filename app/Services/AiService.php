@@ -32,6 +32,25 @@ class AiService
     }
 
     /**
+     * Generate a new scenario
+     */
+    public function generateScenario(string $gameId, string $userInput = '', string $difficulty = 'mittel'): array
+    {
+        $response = Http::timeout(120) // Längerer Timeout für AI-Generierung
+            ->post("{$this->baseUrl}/scenario/generate", [
+                'game_id' => $gameId,
+                'user_input' => $userInput,
+                'difficulty' => $difficulty,
+            ]);
+
+        if (! $response->ok()) {
+            throw new RuntimeException('Failed to generate scenario: '.$response->body());
+        }
+
+        return $response->json();
+    }
+
+    /**
      * Start a new game session
      */
     public function startGame(string $gameId): array
@@ -75,11 +94,13 @@ class AiService
     }
 
     /**
-     * Get available personas
+     * Get available personas for a specific game
      */
-    public function getPersonas(): array
+    public function getPersonas(string $gameId): array
     {
-        $response = Http::timeout(10)->get("{$this->baseUrl}/personas");
+        $response = Http::timeout(10)->get("{$this->baseUrl}/personas", [
+            'game_id' => $gameId,
+        ]);
 
         if (! $response->ok()) {
             throw new RuntimeException('Failed to get personas: '.$response->body());

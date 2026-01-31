@@ -24,6 +24,8 @@ class Message(TypedDict):
     role: str  # "user" or "assistant"
     persona_slug: Optional[str]  # Which persona sent this (None for user)
     content: str
+    audio_base64: Optional[str]  # Base64 encoded audio from ElevenLabs
+    voice_id: Optional[str]  # Voice ID used for this message
 
 
 class GameState(TypedDict):

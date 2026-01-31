@@ -125,6 +125,8 @@ class ChatResponse(BaseModel):
     revealed_clue: Optional[str] = None
     agent_stress: float = 0.0
     interrogation_count: int = 0
+    audio_base64: Optional[str] = None  # Base64 encoded audio from ElevenLabs
+    voice_id: Optional[str] = None  # Voice ID used for audio generation
 
 
 class GameStartRequest(BaseModel):
@@ -348,7 +350,9 @@ async def chat_with_persona(request: ChatRequest):
             persona_name=agent.name if agent else request.persona_slug,
             revealed_clue=final_state.get("detected_clue"),
             agent_stress=agent_state.get("stress_level", 0.0),
-            interrogation_count=agent_state.get("interrogation_count", 0)
+            interrogation_count=agent_state.get("interrogation_count", 0),
+            audio_base64=final_state.get("audio_base64"),  # Added for voice integration
+            voice_id=final_state.get("voice_id")  # Added for voice integration
         )
         
     except Exception as e:

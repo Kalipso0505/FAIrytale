@@ -17,6 +17,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .state import GameState, Message
 from services.prompt_service import get_prompt_service
+from services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,14 @@ class PersonaAgent:
     - llm: the language model to use
     """
     
-    def __init__(self, persona_data: dict, llm: ChatOpenAI):
+    def __init__(self, persona_data: dict, llm: ChatOpenAI, voice_id: Optional[str] = None, voice_service: Optional[VoiceService] = None):
         self.slug = persona_data["slug"]
         self.name = persona_data["name"]
         self.role = persona_data["role"]
         self.persona_data = persona_data
         self.llm = llm
+        self.voice_id = voice_id
+        self.voice_service = voice_service
         
         # Private knowledge - ONLY this agent knows this
         self.private_knowledge = persona_data["private_knowledge"]
@@ -46,6 +49,8 @@ class PersonaAgent:
         
         # Clue detection keywords for this persona
         self.clue_keywords = self._setup_clue_keywords()
+        
+        logger.info(f"PersonaAgent {self.name} initialized with voice: {voice_id[:20] if voice_id else 'None'}...")
     
     def _setup_clue_keywords(self) -> list[str]:
         """Keywords that indicate this persona revealed important info"""
@@ -172,6 +177,17 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         
         logger.info(f"Response: {response_text[:100]}...")
         
+        # Generate audio using ElevenLabs if voice_service is available
+        audio_base64 = None
+        if self.voice_service and self.voice_id:
+            try:
+                audio_bytes = await self.voice_service.text_to_speech(response_text, self.voice_id)
+                if audio_bytes:
+                    audio_base64 = self.voice_service.audio_to_base64(audio_bytes)
+                    logger.info(f"Generated audio for {self.name}: {len(audio_bytes)} bytes")
+            except Exception as e:
+                logger.error(f"Failed to generate audio for {self.name}: {e}")
+        
         # Detect if we revealed a clue
         detected_clue = self._detect_revealed_clue(response_text)
         
@@ -189,12 +205,16 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         state["final_response"] = response_text
         state["responding_agent"] = self.slug
         state["detected_clue"] = detected_clue
+        state["audio_base64"] = audio_base64  # Added for voice integration
+        state["voice_id"] = self.voice_id  # Added for voice integration
         
         # Add to message history
         new_message = Message(
             role="assistant",
             persona_slug=self.slug,
-            content=response_text
+            content=response_text,
+            audio_base64=audio_base64,  # Added for voice integration
+            voice_id=self.voice_id  # Added for voice integration
         )
         state["messages"] = [new_message]  # Will be accumulated via Annotated[..., add]
         

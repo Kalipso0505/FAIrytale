@@ -26,3 +26,26 @@ venv/
 
 # macOS
 .DS_Store
+
+# npm/yarn cache
+.npm/
+.yarn/
+.pnpm-store/
+
+# Git config (created by Docker)
+.gitconfig
+
+# Laravel logs (content ignored, structure kept via .gitignore in folder)
+/storage/logs/*.log
+
+# Docker generated
+.docker/db/data/
+.docker/redis/data/
+.docker/phpmyadmin/sessions/
+
+# Vite cache
+node_modules/.vite/
+node_modules/.vite-temp/
+
+# Composer cache
+.composer/

@@ -1,0 +1,78 @@
+---
+alwaysApply: true
+---
+
+# Projekt Documentation Rules
+
+## Purpose
+
+The PROJEKT.md is the single place for documenting **project-wide concepts and constraints**
+that cannot be reliably inferred from the code alone.
+
+It is **not** a replacement for reading the code.
+It exists to capture implicit knowledge, architectural intent, and non-obvious decisions.
+
+---
+
+## What MUST be documented
+
+Only document topics that are **conceptual, cross-cutting, or implicit**, especially:
+
+- High-level architectural or design decisions
+- The authorization / permission model (roles, policies, invariants)
+- Important domain-specific rules or assumptions
+- Project-wide conventions that must be followed
+- Intentional deviations from framework or industry standards
+- Critical technical constraints or known trade-offs
+
+---
+
+## What MUST NOT be documented
+
+Do NOT document anything that can be understood by reading the code, including:
+
+- Classes, methods, services, DTOs, models, or controllers
+- Route definitions or API endpoints
+- Step-by-step implementation details
+- Framework or Laravel default behavior
+- Configuration values that are self-explanatory
+- Anything already defined in OpenAPI or other specs
+
+If something can be learned by reading the code, it does not belong in the README.
+
+---
+
+## Level of detail
+
+- Prefer **principles over implementation**
+- Prefer **rules over examples**
+- Prefer **why over how**
+- Keep the PROJEKT.md short and incomplete by design
+
+The PROJEKT.md should rarely change.
+Only update it when a **new concept or invariant** is introduced.
+
+---
+
+## Quality gate
+
+Before adding or changing PROJEKT.md content, ask:
+
+> Would an experienced developer still need this information  
+> after reading the code carefully?
+
+If the answer is **no**, do not add it.
+
+---
+
+## Allowed structure (optional)
+
+The PROJEKT.md may include sections such as:
+
+- Architecture Overview
+- Authorization Model
+- Domain Rules & Invariants
+- Conventions & Constraints
+- Non-obvious Dependencies
+
+The exact structure is intentionally not fixed.

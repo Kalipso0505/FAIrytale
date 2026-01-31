@@ -1,0 +1,56 @@
+---
+alwaysApply: true
+---
+# Cursor Rules – Laravel Projekt (Ergänzung zu Laravel Boost)
+
+> **Wichtig:** Die Datei **laravel-boost.mdc** ist die primäre Quelle für allgemeine Laravel-/Pest-/Pint-/Architektur-Regeln.  
+> Diese **laravel.mdc** enthält **nur projekt-spezifische Ergänzungen**, damit sich nichts doppelt oder widerspricht.
+
+## 🐳 Ausführungsumgebung (Projekt-spezifisch)
+
+- Entwicklung und Ausführung erfolgt **ausschließlich im Docker-Container**.
+- Artisan-Aufrufe immer so:
+  - `docker compose exec php php artisan <Befehl>`
+- Tests immer im Container ausführen:
+  - `docker compose exec php php artisan test`
+
+## 🔀 Routen & API-Vorgehen (Ergänzung)
+
+- Neue API-Routen immer in `routes/api.php`
+- Vorgehen bei neuen Endpoints:
+  1. Route anlegen
+  2. Controller per Artisan erzeugen
+  3. Logik implementieren
+  4. **Ausführlich testen**
+  5. OpenAPI-Doku ergänzen (`/public/openapi.yaml` / oder abweichernder openapi Ort im Projekt)
+
+> Allgemeine Controller-/Service-/DTO-Regeln sind in **laravel-boost.mdc** definiert.
+
+## 📄 OpenAPI / Dokumentation (Projektstandard)
+
+- Jede neue oder geänderte API **muss** in `/public/openapi.yaml` (oder abweichernder openapi Ort im Projekt) gepflegt werden
+- Keine losgelöste Doku außerhalb der OpenAPI
+- Beispiele realistisch, keine Platzhalter wie `foo` oder `bar`
+
+## 🧪 Tests (Ergänzung)
+
+- Tests sind **Pflicht** bei:
+  - neuen Endpoints
+  - geänderter Business-Logik
+- Fokus:
+  - Feature-Tests für API
+  - keine unnötigen Unit-Tests für triviale Getter/Setter
+
+> Test-Framework, Assertions und Struktur siehe **laravel-boost.mdc**.
+
+## 🧹 Automatische Fixes (falls vorhanden)
+
+```bash
+docker compose exec php composer lint:fix
+```
+
+Für Pint gilt zusätzlich die Boost-Regel:
+vor dem Finalisieren vendor/bin/pint --dirty (oder äquivalent via Skript) laufen lassen.
+
+## 🧪 Tests (Ergänzung)
+Commits folgen den Regeln unter /CONTRIBUTING.md

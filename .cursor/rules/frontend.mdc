@@ -1,0 +1,133 @@
+---
+alwaysApply: true
+---
+
+# Cursor Rules – React Frontend
+
+## 🔧 Allgemeine Entwicklungsregeln
+
+- Alle Frontend-Entwicklung erfolgt **ausschließlich im Docker-Container**. Lokale Ausführung von Node.js oder npm/yarn ist untersagt.
+- Um Frontend-Befehle auszuführen nutze `docker compose exec php npm <Befehl>` oder `docker compose exec php yarn <Befehl>`
+- **React Best Practices** sind in allen Bereichen anzuwenden (z. B. Komponentenstruktur, Hooks, State Management).
+
+---
+
+## 📌 Projektstruktur
+
+Das Frontend ist in folgende Bereiche unterteilt:
+- **Pages**: Hauptseiten-Komponenten unter `resources/js/Pages/`
+- **Components**: Wiederverwendbare Komponenten unter `resources/js/Components/`
+- **Services**: API-Services und externe Services unter `resources/js/Services/`
+- **Stores**: State Management unter `resources/js/Stores/`
+- **Types**: TypeScript-Definitionen unter `resources/js/Types/`
+- **Theme**: Material-UI Theme-Konfiguration unter `resources/js/theme/`
+
+---
+
+## 📌 Vorgehen zur Implementierung neuer Features
+
+1. **Komponente erstellen**
+   - Nutze funktionale Komponenten mit TypeScript
+   - Verwende React Hooks für State Management
+   - Stelle sicher, dass Props korrekt typisiert sind
+
+2. **Seiten implementieren**
+   - Lege neue Seiten unter `resources/js/Pages/` ab
+   - Nutze Inertia.js für Server-Side Rendering
+   - Implementiere entsprechende Route in `routes/web.php`
+
+3. **Services integrieren**
+   - API-Calls über Services unter `resources/js/Services/`
+   - Nutze Axios für HTTP-Requests
+   - Implementiere Error Handling
+
+4. **Styling**
+   - Nutze Material-UI Komponenten als Basis
+   - Erweitere mit Tailwind CSS für Custom-Styling
+   - Verwende das definierte Theme (`softfairTheme`)
+
+5. **Tests schreiben**
+   - Lege Komponenten-Tests unter `resources/js/Components/__tests__/` ab
+   - Nutze React Testing Library
+   - Teste sowohl Happy Path als auch Edge Cases
+
+---
+
+## 📁 React Development Rules
+
+### Allgemein
+- Nutze Kommentare nur wenn wirklich notwendig
+- Folge dem Single Responsibility Principle
+- Halte Komponenten klein und fokussiert
+
+### TypeScript
+- Verwende strikte Typisierung für alle Props und State
+- Nutze Interface-Definitionen für komplexe Objekte
+- Stelle sicher, dass alle Imports korrekt typisiert sind
+
+### React
+- Nutze funktionale Komponenten mit Hooks
+- Verwende `useState` und `useEffect` für lokalen State
+- Implementiere `useCallback` und `useMemo` für Performance-Optimierung
+- Nutze Custom Hooks für wiederverwendbare Logik
+
+### Material-UI
+- Verwende Material-UI Komponenten als Basis-Design-System
+- Nutze das definierte Theme (`softfairTheme`)
+- Erweitere mit `@mui/icons-material` für Icons
+- Verwende `@emotion/react` und `@emotion/styled` für Custom-Styling
+
+### Inertia.js
+- Nutze Inertia.js für Server-Side Rendering
+- Implementiere korrekte Page-Props-Typisierung
+- Verwende Inertia-Links für Navigation
+
+### State Management
+- Nutze lokalen State mit `useState` für Komponenten-spezifische Daten
+- Implementiere globalen State über Context API oder externe Libraries
+- Vermeide Prop Drilling durch angemessene State-Struktur
+
+### Styling
+- Nutze Material-UI Theme für konsistentes Design
+- Erweitere mit Tailwind CSS für Custom-Styling
+- Verwende `sx` Prop für Inline-Styling
+- Implementiere responsive Design mit Material-UI Breakpoints
+
+---
+
+## 📋 Testing
+
+- Komponenten-Tests liegen in `resources/js/Components/__tests__/`
+- Nutze React Testing Library für Komponenten-Tests
+- Teste User Interactions und nicht Implementation Details
+- Stelle sicher, dass Tests unabhängig und wartbar sind
+- Testausführung über `docker compose exec php npm test`
+
+---
+
+## 🚀 Build und Development
+
+- Development Server: `docker compose exec php npm run dev`
+- Production Build: `docker compose exec php npm run build`
+- Hot Module Replacement ist aktiviert für Development
+- Vite wird als Build-Tool verwendet
+
+---
+
+## 📦 Dependencies
+
+### Core
+- React 18+ mit TypeScript
+- Inertia.js für Server-Side Rendering
+- Material-UI für Design-System
+- Tailwind CSS für Custom-Styling
+
+### Development
+- Vite als Build-Tool
+- TypeScript für Typisierung
+- React Testing Library für Tests
+
+### Styling
+- @emotion/react und @emotion/styled
+- @mui/material und @mui/icons-material
+- Tailwind CSS

@@ -69,6 +69,27 @@ Alle Befehle für dieses Projekt. PHP/Composer/NPM laufen **im Docker-Container*
 | Production-Build | `docker compose exec php npm run build` |
 | Tests (falls konfiguriert) | `docker compose exec php npm test` |
 
+### Frontend-Struktur
+
+```
+resources/
+├── js/
+│   ├── Components/      # Wiederverwendbare React-Komponenten
+│   │   └── ui/          # shadcn/ui (Button, Card, …)
+│   ├── Pages/           # Inertia.js-Seiten (*.tsx)
+│   ├── lib/             # Hilfsfunktionen
+│   ├── types/           # TypeScript-Typen
+│   └── app.tsx          # React-Einstieg
+└── css/
+    └── app.css          # Tailwind
+```
+
+**Neue Seite:** 1) `.tsx` in `resources/js/Pages/` anlegen. 2) Route in `routes/web.php` z.B. `Route::get('/beispiel', fn () => Inertia::render('Beispiel'));`
+
+**Ziggy:** Laravel-Routen in React nutzen: `route('name')`, `route('posts.show', { id: 1 })`. Mit Inertia: `<Link href={route('dashboard')}>…</Link>`.
+
+**shadcn/ui:** Weitere Komponenten von [ui.shadcn.com](https://ui.shadcn.com) nach `resources/js/Components/ui/` hinzufügen.
+
 ---
 
 ## Code-Qualität & Doku
@@ -103,8 +124,16 @@ Der AI-Service startet mit `docker compose up -d` automatisch.
 | Vite Dev (HMR) | Port 5173 (via docker-compose) |
 | AI-Service | http://localhost:8001 |
 | Mailpit | http://localhost:8025 |
-| phpMyAdmin | (auskommentiert in docker-compose) |
-| Adminer | (auskommentiert in docker-compose) |
+| phpMyAdmin | (auskommentiert in docker-compose; Zugangsdaten ggf. in `.env`/docker-compose prüfen) |
+| Adminer | (auskommentiert in docker-compose; Zugangsdaten ggf. in `.env`/docker-compose prüfen) |
+
+---
+
+## Alternative Setups
+
+- [Laravel Sail](https://laravel.com/docs/master/sail)
+- [Laravel Herd](https://herd.laravel.com/)
+- [Laradock](https://laradock.io/)
 
 ---
 

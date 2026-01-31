@@ -1,757 +1,143 @@
+import { useState } from 'react';
 import { Head } from '@inertiajs/react';
-import { useState, useEffect } from 'react';
-import { Button } from '@/Components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { PersonaSelector } from '@/Components/Game/PersonaSelector';
-import { ChatWindow } from '@/Components/Game/ChatWindow';
-import { GameHeader } from '@/Components/Game/GameHeader';
-import { AccuseModal } from '@/Components/Game/AccuseModal';
-import { CaseInfoPanel } from '@/Components/Game/CaseInfoPanel';
-import { StartScreen } from '@/Components/Game/StartScreen';
-import { IntroductionScreen } from '@/Components/Game/IntroductionScreen';
-import axios from 'axios';
+import { useGameState } from '@/hooks/use-game-state';
+import {
+    StartScreenV3,
+    IntroScreen,
+    GameLayout,
+    GameHeader,
+    AccuseModal,
+} from '@/Components/Game';
 
-interface Persona {
-    slug: string;
-    name: string;
-    role: string;
-    description: string;
-    emoji: string;
-    image?: string;
-}
-
-interface Message {
-    id?: number;
-    persona_slug: string | null;
-    content: string;
-    is_user: boolean;
-    created_at?: string;
-    messageId?: string; // Required for pinning/saving
-    audio_base64?: string; // Audio from ElevenLabs
-}
-
-interface AutoNote {
-    text: string;
-    category: 'alibi' | 'motive' | 'relationship' | 'observation' | 'contradiction';
-    timestamp: string;
-    source_message: string;
-}
-
-interface GameState {
-    gameId: string | null;
-    status: 'not-started' | 'loading' | 'intro' | 'active' | 'solved' | 'failed';
-    scenarioName: string;
-    setting: string;
-    victim: {
-        name: string;
-        role: string;
-        description: string;
-    };
-    location: string;
-    timeOfIncident: string;
-    timeline: string;
-    personas: Persona[];
-    introMessage: string;
-    revealedClues: string[];
-    autoNotes: Record<string, AutoNote[]>; // Per persona
-    messages: Record<string, Message[]>; // Per persona
-}
-
-interface Props {
-    // Empty - personas are now loaded dynamically per game
-}
-
-export default function Game({}: Props) {
-    const [gameState, setGameState] = useState<GameState>({
-        gameId: null,
-        status: 'not-started',
-        scenarioName: '',
-        setting: '',
-        victim: {
-            name: '',
-            role: '',
-            description: ''
-        },
-        location: '',
-        timeOfIncident: '',
-        timeline: '',
-        personas: [],
-        introMessage: '',
-        revealedClues: [],
-        autoNotes: {},
-        messages: {},
-    });
-    const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+export default function GameNew() {
+    const game = useGameState();
     const [showAccuseModal, setShowAccuseModal] = useState(false);
-    const [solution, setSolution] = useState<{
-        correct: boolean;
-        message: string;
-    } | null>(null);
-    
-    // StartScreen state
-    const [scenarioInput, setScenarioInput] = useState('');
-    const [difficulty, setDifficulty] = useState<'einfach' | 'mittel' | 'schwer'>('mittel');
-    const [isGenerating, setIsGenerating] = useState(false);
-    
-    // Track read message count per persona (for unread badge)
-    const [readCounts, setReadCounts] = useState<Record<string, number>>({});
-    
-    // Track pinned and saved messages
-    const [pinnedMessages, setPinnedMessages] = useState<Set<string>>(() => {
-        if (gameState.gameId) {
-            const saved = localStorage.getItem(`pinned-messages-${gameState.gameId}`);
-            return saved ? new Set(JSON.parse(saved)) : new Set();
-        }
-        return new Set();
-    });
-    
-    const [savedMessages, setSavedMessages] = useState<Set<string>>(() => {
-        if (gameState.gameId) {
-            const saved = localStorage.getItem(`saved-messages-${gameState.gameId}`);
-            return saved ? new Set(JSON.parse(saved)) : new Set();
-        }
-        return new Set();
-    });
-    
-    // Load pinned/saved messages when game starts
-    useEffect(() => {
-        if (gameState.gameId) {
-            const savedPinned = localStorage.getItem(`pinned-messages-${gameState.gameId}`);
-            const savedSaved = localStorage.getItem(`saved-messages-${gameState.gameId}`);
-            if (savedPinned) setPinnedMessages(new Set(JSON.parse(savedPinned)));
-            if (savedSaved) setSavedMessages(new Set(JSON.parse(savedSaved)));
-        } else {
-            setPinnedMessages(new Set());
-            setSavedMessages(new Set());
-        }
-    }, [gameState.gameId]);
-    
-    // Save pinned messages to localStorage
-    useEffect(() => {
-        if (gameState.gameId && pinnedMessages.size > 0) {
-            localStorage.setItem(`pinned-messages-${gameState.gameId}`, JSON.stringify(Array.from(pinnedMessages)));
-        }
-    }, [pinnedMessages, gameState.gameId]);
-    
-    // Save saved messages to localStorage
-    useEffect(() => {
-        if (gameState.gameId && savedMessages.size > 0) {
-            localStorage.setItem(`saved-messages-${gameState.gameId}`, JSON.stringify(Array.from(savedMessages)));
-        }
-    }, [savedMessages, gameState.gameId]);
-    
-    const handlePinMessage = (messageId: string, content: string, personaName: string) => {
-        if (!gameState.gameId) return;
-        
-        setPinnedMessages(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(messageId)) {
-                newSet.delete(messageId);
-            } else {
-                newSet.add(messageId);
-            }
-            // Save to localStorage immediately
-            localStorage.setItem(`pinned-messages-${gameState.gameId}`, JSON.stringify(Array.from(newSet)));
-            return newSet;
-        });
-    };
-    
-    const handleSaveToNotes = (messageId: string, content: string, personaName: string) => {
-        setSavedMessages(prev => {
-            const newSet = new Set(prev);
-            if (!newSet.has(messageId)) {
-                newSet.add(messageId);
-                // Add to notes in CaseInfoPanel
-                const notesKey = `case-notes-${gameState.gameId}`;
-                const existingNotes = localStorage.getItem(notesKey) || '';
-                const newNote = `\n\n[${personaName}]: ${content}`;
-                localStorage.setItem(notesKey, existingNotes + newNote);
-                // Trigger update in CaseInfoPanel by dispatching event
-                window.dispatchEvent(new CustomEvent('notes-updated'));
-            }
-            return newSet;
-        });
-    };
-    
-    const handleSaveToQuestions = (content: string) => {
-        if (!gameState.gameId) return;
-        
-        const questionsKey = `case-questions-${gameState.gameId}`;
-        const existingQuestionsStr = localStorage.getItem(questionsKey);
-        const existingQuestions = existingQuestionsStr ? JSON.parse(existingQuestionsStr) : [];
-        
-        // Check if this question already exists (avoid duplicates)
-        const alreadyExists = existingQuestions.some((q: { text: string }) => 
-            q.text.toLowerCase().trim() === content.toLowerCase().trim()
-        );
-        
-        if (!alreadyExists) {
-            const newQuestion = {
-                id: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                text: content,
-                createdAt: new Date().toISOString(),
-                askedCount: 1, // Already asked once since it's from chat
-            };
-            const updatedQuestions = [newQuestion, ...existingQuestions];
-            localStorage.setItem(questionsKey, JSON.stringify(updatedQuestions));
-            // Trigger update in CaseInfoPanel
-            window.dispatchEvent(new CustomEvent('questions-updated'));
-        }
-    };
-    
-    // Column widths with localStorage persistence
-    const [leftWidth, setLeftWidth] = useState(() => {
-        const saved = localStorage.getItem('column-width-left');
-        return saved ? parseInt(saved) : 320; // Default 320px (w-80)
-    });
-    const [rightWidth, setRightWidth] = useState(() => {
-        const saved = localStorage.getItem('column-width-right');
-        return saved ? parseInt(saved) : 384; // Default 384px (w-96)
-    });
-    const [isResizingLeft, setIsResizingLeft] = useState(false);
-    const [isResizingRight, setIsResizingRight] = useState(false);
-    
-    // Save widths to localStorage
-    useEffect(() => {
-        localStorage.setItem('column-width-left', leftWidth.toString());
-    }, [leftWidth]);
-    
-    useEffect(() => {
-        localStorage.setItem('column-width-right', rightWidth.toString());
-    }, [rightWidth]);
-    
-    // Resize handlers
-    useEffect(() => {
-        const handleMouseMove = (e: MouseEvent) => {
-            if (isResizingLeft) {
-                const container = document.querySelector('.max-w-\\[1920px\\]');
-                if (container) {
-                    const rect = container.getBoundingClientRect();
-                    const newWidth = e.clientX - rect.left - 8; // Account for padding
-                    if (newWidth >= 200 && newWidth <= 600) {
-                        setLeftWidth(newWidth);
-                    }
-                }
-            }
-            if (isResizingRight) {
-                const container = document.querySelector('.max-w-\\[1920px\\]');
-                if (container) {
-                    const rect = container.getBoundingClientRect();
-                    const newWidth = rect.right - e.clientX - 8; // Account for padding
-                    if (newWidth >= 200 && newWidth <= 600) {
-                        setRightWidth(newWidth);
-                    }
-                }
-            }
-        };
-        
-        const handleMouseUp = () => {
-            setIsResizingLeft(false);
-            setIsResizingRight(false);
-        };
-        
-        if (isResizingLeft || isResizingRight) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-        }
-        
-        return () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        };
-    }, [isResizingLeft, isResizingRight]);
 
-    const generateAndStartGame = async () => {
-        setIsGenerating(true);
-        try {
-            const response = await axios.post('/game/generate-and-start', {
-                user_input: scenarioInput,
-                difficulty: difficulty,
-            });
-            
-            const data = response.data;
-            
-            setGameState({
-                gameId: data.game_id,
-                status: 'intro',  // Changed from 'active' to 'intro'
-                scenarioName: data.scenario_name,
-                setting: data.setting,
-                victim: data.victim,
-                location: data.location,
-                timeOfIncident: data.time_of_incident,
-                timeline: data.timeline,
-                personas: data.personas,
-                introMessage: data.intro_message,
-                revealedClues: [],
-                autoNotes: {},
-                messages: {},
-            });
-            // Reset read counts when starting new game
-            setReadCounts({});
-            // Reset pinned and saved messages for new game
-            setPinnedMessages(new Set());
-            setSavedMessages(new Set());
-            // Reset selected persona
-            setSelectedPersona(null);
-        } catch (error: any) {
-            console.error('Failed to generate scenario:', error);
-            alert(error.response?.data?.error || 'Szenario-Generierung fehlgeschlagen. Bitte versuche es erneut.');
-        } finally {
-            setIsGenerating(false);
-        }
+    // Prepare case info object
+    const caseInfo = {
+        scenarioName: game.scenarioName,
+        setting: game.setting,
+        victim: game.victim,
+        location: game.location,
+        timeOfIncident: game.timeOfIncident,
+        timeline: game.timeline,
+        introMessage: game.introMessage,
     };
 
-    const quickStartGame = async () => {
-        setIsGenerating(true);
-        try {
-            const response = await axios.post('/game/quick-start');
-            
-            const data = response.data;
-            
-            setGameState({
-                gameId: data.game_id,
-                status: 'intro',
-                scenarioName: data.scenario_name,
-                setting: data.setting,
-                victim: data.victim,
-                location: data.location,
-                timeOfIncident: data.time_of_incident,
-                timeline: data.timeline,
-                personas: data.personas,
-                introMessage: data.intro_message,
-                revealedClues: [],
-                autoNotes: {},
-                messages: {},
-            });
-            // Reset read counts when starting new game
-            setReadCounts({});
-            // Reset pinned and saved messages for new game
-            setPinnedMessages(new Set());
-            setSavedMessages(new Set());
-            // Reset selected persona
-            setSelectedPersona(null);
-        } catch (error: any) {
-            console.error('Failed to quick start:', error);
-            alert(error.response?.data?.error || 'Quick Start fehlgeschlagen. Bitte versuche es erneut.');
-        } finally {
-            setIsGenerating(false);
-        }
+    // Handle accusation
+    const handleAccuse = async (personaSlug: string) => {
+        await game.accuse(personaSlug);
+        setShowAccuseModal(false);
     };
 
-    const beginInvestigation = () => {
-        setGameState(prev => ({
-            ...prev,
-            status: 'active'
-        }));
-    };
-
-    const sendMessage = async (message: string) => {
-        if (!gameState.gameId || !selectedPersona) return;
-
-        const personaSlug = selectedPersona.slug;
-        
-        // Add user message to UI immediately
-        const currentMessages = gameState.messages[personaSlug] || [];
-        const messageId = `${gameState.gameId}-${personaSlug}-user-${currentMessages.length}-${Date.now()}`;
-        const userMessage: Message = {
-            persona_slug: null,
-            content: message,
-            is_user: true,
-            messageId: messageId,
-        };
-        
-        setGameState(prev => ({
-            ...prev,
-            messages: {
-                ...prev.messages,
-                [personaSlug]: [...(prev.messages[personaSlug] || []), userMessage],
-            },
-        }));
-
-        setIsLoading(true);
-        try {
-            const response = await axios.post('/game/chat', {
-                game_id: gameState.gameId,
-                persona_slug: personaSlug,
-                message: message,
-            });
-            
-            const data = response.data;
-            
-            // DEBUG: Log auto notes from response
-            console.log('=== CHAT RESPONSE DEBUG ===');
-            console.log('all_auto_notes:', data.all_auto_notes);
-            console.log('new_auto_notes:', data.new_auto_notes);
-            
-            // Add persona response
-            const personaMessageId = `${gameState.gameId}-${personaSlug}-persona-${Date.now()}`;
-            const personaMessage: Message = {
-                persona_slug: data.persona_slug,
-                content: data.response,
-                is_user: false,
-                messageId: personaMessageId,
-                audio_base64: data.audio_base64, // Include audio from API
-            };
-            
-            setGameState(prev => {
-                const currentMessages = prev.messages[personaSlug] || [];
-                // Ensure messageId is set if not already set
-                if (!personaMessage.messageId) {
-                    personaMessage.messageId = `${gameState.gameId}-${personaSlug}-persona-${currentMessages.length}-${Date.now()}`;
-                }
-                const newMessages = [...currentMessages, personaMessage];
-                // If this persona's chat is currently open, mark all messages as read
-                if (selectedPersona?.slug === personaSlug) {
-                    setReadCounts(prevCounts => ({
-                        ...prevCounts,
-                        [personaSlug]: newMessages.length,
-                    }));
-                }
-                return {
-                    ...prev,
-                    messages: {
-                        ...prev.messages,
-                        [personaSlug]: newMessages,
-                    },
-                    revealedClues: data.revealed_clue 
-                        ? [...prev.revealedClues, data.revealed_clue]
-                        : prev.revealedClues,
-                    // Update auto notes from the response
-                    autoNotes: data.all_auto_notes || prev.autoNotes,
-                };
-            });
-        } catch (error: any) {
-            const errorMessageId = `${gameState.gameId}-${personaSlug}-error-${Date.now()}`;
-            const errorMessage: Message = {
-                persona_slug: personaSlug,
-                content: error.response?.data?.error || 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.',
-                is_user: false,
-                messageId: errorMessageId,
-            };
-            
-            setGameState(prev => {
-                const currentMessages = prev.messages[personaSlug] || [];
-                // Ensure messageId is set
-                if (!errorMessage.messageId) {
-                    errorMessage.messageId = `${gameState.gameId}-${personaSlug}-error-${currentMessages.length}-${Date.now()}`;
-                }
-                const newMessages = [...currentMessages, errorMessage];
-                // If this persona's chat is currently open, mark all messages as read
-                if (selectedPersona?.slug === personaSlug) {
-                    setReadCounts(prevCounts => ({
-                        ...prevCounts,
-                        [personaSlug]: newMessages.length,
-                    }));
-                }
-                return {
-                    ...prev,
-                    messages: {
-                        ...prev.messages,
-                        [personaSlug]: newMessages,
-                    },
-                };
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handlePersonaSelect = (persona: Persona) => {
-        setSelectedPersona(persona);
-        // Mark all messages for this persona as read
-        const messageCount = gameState.messages[persona.slug]?.length || 0;
-        setReadCounts(prev => ({
-            ...prev,
-            [persona.slug]: messageCount,
-        }));
-    };
-
-    const accusePersona = async (accusedSlug: string) => {
-        if (!gameState.gameId) return;
-
-        setIsLoading(true);
-        try {
-            const response = await axios.post('/game/accuse', {
-                game_id: gameState.gameId,
-                accused_persona: accusedSlug,
-            });
-            
-            setSolution(response.data);
-            setGameState(prev => ({
-                ...prev,
-                status: response.data.correct ? 'solved' : 'failed',
-            }));
-        } catch (error) {
-            console.error('Failed to accuse:', error);
-        } finally {
-            setIsLoading(false);
-            setShowAccuseModal(false);
-        }
-    };
-
-    // Not started state - show start screen
-    if (gameState.status === 'not-started') {
-        return (
-            <>
-                <Head title="Murder Mystery - Start" />
-                <StartScreen
-                    scenarioInput={scenarioInput}
-                    setScenarioInput={setScenarioInput}
-                    difficulty={difficulty}
-                    setDifficulty={setDifficulty}
-                    isGenerating={isGenerating}
-                    onStartGame={generateAndStartGame}
-                    onQuickStart={quickStartGame}
-                />
-            </>
-        );
-    }
-
-    // Introduction state - show case briefing and personas
-    if (gameState.status === 'intro') {
-        const caseNumber = gameState.gameId?.toUpperCase().slice(0, 8) || 'UNKNOWN';
-        
-        return (
-            <>
-                <Head title={`${gameState.scenarioName} - Briefing`} />
-                <IntroductionScreen
-                    scenarioName={gameState.scenarioName}
-                    setting={gameState.setting}
-                    victim={gameState.victim}
-                    location={gameState.location}
-                    timeOfIncident={gameState.timeOfIncident}
-                    timeline={gameState.timeline}
-                    personas={gameState.personas}
-                    introMessage={gameState.introMessage}
-                    caseNumber={caseNumber}
-                    onBeginInvestigation={beginInvestigation}
-                />
-            </>
-        );
-    }
-
-    // Game ended - show solution
-    if (solution) {
-        return (
-            <>
-                <Head title={solution.correct ? 'CASE CLOSED' : 'INVESTIGATION FAILED'} />
-                <div className="min-h-screen flex items-center justify-center p-6">
-                    <div className={`max-w-3xl w-full cia-bg-panel border ${
-                        solution.correct 
-                            ? 'border-green-500/50 shadow-lg shadow-green-500/20' 
-                            : 'border-red-500/50 shadow-lg shadow-red-500/20'
-                    }`}>
-                        {/* Top Bar */}
-                        <div className="bg-black/50 border-b border-white/10 px-4 py-2 flex items-center justify-between text-xs cia-text">
-                            <div className="flex items-center gap-4">
-                                <span className="text-white">CASE FILE: {gameState.scenarioName || 'UNKNOWN'}</span>
-                                <span className="text-gray-400">STATUS:</span>
-                                <span className={solution.correct ? 'cia-text-yellow' : 'text-red-400'}>
-                                    {solution.correct ? 'CLOSED' : 'FAILED'}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <span className="text-gray-400">RESULT:</span>
-                                <span className={solution.correct ? 'text-green-400' : 'text-red-400'}>
-                                    {solution.correct ? 'SUCCESS' : 'FAILURE'}
-                                </span>
-                            </div>
-                        </div>
-                        
-                        <div className="p-8 space-y-6">
-                            <div className="text-center space-y-4 border-b border-white/10 pb-6">
-                                <div className="text-6xl mb-2">{solution.correct ? '✓' : '✗'}</div>
-                                <h1 className={`text-3xl font-bold uppercase tracking-wider cia-text ${
-                                    solution.correct ? 'text-white' : 'text-red-400'
-                                }`}>
-                                    {solution.correct ? 'CASE CLOSED' : 'INVESTIGATION FAILED'}
-                                </h1>
-                            </div>
-                            
-                            <div className="cia-document p-6 space-y-4">
-                                <div className="border-b-2 border-black pb-2 mb-4">
-                                    <h2 className="text-xl font-bold uppercase">FINAL CASE REPORT</h2>
-                                    <p className="text-xs text-gray-600">CASE #{gameState.gameId?.slice(0, 8).toUpperCase()}</p>
-                                </div>
-                                
-                                <div className="space-y-3 text-sm">
-                                    <p className="font-bold">{solution.message}</p>
-                                </div>
-                            </div>
-                            
-                            <button 
-                                onClick={() => {
-                                    setGameState({
-                                        gameId: null,
-                                        status: 'not-started',
-                                        scenarioName: '',
-                                        setting: '',
-                                        victim: {
-                                            name: '',
-                                            role: '',
-                                            description: ''
-                                        },
-                                        location: '',
-                                        timeOfIncident: '',
-                                        timeline: '',
-                                        personas: [],
-                                        introMessage: '',
-                                        revealedClues: [],
-                                        autoNotes: {},
-                                        messages: {},
-                                    });
-                                    setSolution(null);
-                                    setScenarioInput('');
-                                    setDifficulty('mittel');
-                                }}
-                                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-4 px-6 uppercase cia-text transition-all"
-                            >
-                                INITIATE NEW CASE
-                            </button>
-                        </div>
-                        
-                        {/* Bottom Status Bar */}
-                        <div className="bg-black/50 border-t border-white/10 px-4 py-2 flex items-center justify-between text-xs cia-text">
-                            <div className="flex items-center gap-4">
-                                <span className="text-gray-400">SECURITY:</span>
-                                <span className="text-white">SEC 113</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className={solution.correct ? 'text-green-400' : 'text-red-400'}>●</span>
-                                <span className="text-gray-400">CASE ARCHIVED</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </>
-        );
-    }
-
-    // Active game
     return (
         <>
-            <Head title="CLASSIFIED - ACTIVE INVESTIGATION" />
-            <div className="h-screen flex flex-col overflow-hidden">
-                <GameHeader 
-                    revealedClues={gameState.revealedClues}
-                    onAccuse={() => setShowAccuseModal(true)}
-                    scenarioName={gameState.scenarioName}
-                    caseNumber={gameState.gameId?.toUpperCase().slice(0, 8) || 'UNKNOWN'}
+            <Head title="FAIrytale - Murder Mystery Game" />
+
+            {/* Start Screen */}
+            {game.status === 'not-started' && (
+                <StartScreenV3
+                    scenarioInput={game.scenarioInput}
+                    onScenarioInputChange={game.setScenarioInput}
+                    difficulty={game.difficulty}
+                    onDifficultyChange={game.setDifficulty}
+                    onGenerate={game.generateAndStart}
+                    onQuickStart={game.quickStart}
+                    isGenerating={game.isGenerating}
                 />
-                
-                <div className="flex-1 flex gap-0 p-2 max-w-[1920px] mx-auto w-full min-h-0">
-                    {/* Left Column: Chats (Kontakte) */}
-                    <div 
-                        className="shrink-0 h-full"
-                        style={{ width: `${leftWidth}px`, minWidth: '200px', maxWidth: '600px' }}
-                    >
-                        <PersonaSelector 
-                            personas={gameState.personas}
-                            selectedPersona={selectedPersona}
-                            onSelect={handlePersonaSelect}
-                            messageCount={Object.fromEntries(
-                                gameState.personas.map(p => {
-                                    const totalMessages = gameState.messages[p.slug]?.length || 0;
-                                    const readCount = readCounts[p.slug] || 0;
-                                    const unreadCount = Math.max(0, totalMessages - readCount);
-                                    return [p.slug, unreadCount];
-                                })
-                            )}
-                        />
-                    </div>
-                    
-                    {/* Resize Handle Left */}
-                    <div
-                        className={`w-2 bg-white/10 hover:bg-white/20 cursor-col-resize transition-colors group relative ${
-                            isResizingLeft ? 'bg-white/30' : ''
-                        }`}
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            setIsResizingLeft(true);
-                        }}
-                        title="Ziehen zum Anpassen der Spaltenbreite"
-                    >
-                        <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-white/5"></div>
-                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-8 bg-white/20 group-hover:bg-white/30"></div>
-                    </div>
-                    
-                    {/* Middle Column: Chat Window */}
-                    <div className="flex-1 min-w-0">
-                        {selectedPersona ? (
-                            <ChatWindow 
-                                persona={selectedPersona}
-                                messages={gameState.messages[selectedPersona.slug] || []}
-                                onSendMessage={sendMessage}
-                                isLoading={isLoading}
-                                introMessage={gameState.introMessage}
-                                gameId={gameState.gameId}
-                                pinnedMessages={pinnedMessages}
-                                savedMessages={savedMessages}
-                                onPinMessage={handlePinMessage}
-                                onSaveToNotes={handleSaveToNotes}
-                                onSaveToQuestions={handleSaveToQuestions}
-                            />
-                        ) : (
-                            <div className="h-full cia-bg-panel border border-white/10 flex items-center justify-center">
-                                <div className="text-center text-gray-400 cia-text">
-                                    <div className="text-4xl mb-4">▶</div>
-                                    <p className="uppercase tracking-wider">SELECT SUBJECT FOR INTERROGATION</p>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    
-                    {/* Resize Handle Right */}
-                    <div
-                        className={`w-2 bg-white/10 hover:bg-white/20 cursor-col-resize transition-colors group relative ${
-                            isResizingRight ? 'bg-white/30' : ''
-                        }`}
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            setIsResizingRight(true);
-                        }}
-                        title="Ziehen zum Anpassen der Spaltenbreite"
-                    >
-                        <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-white/5"></div>
-                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-8 bg-white/20 group-hover:bg-white/30"></div>
-                    </div>
-                    
-                    {/* Right Column: Case Info Panel with Tabs */}
-                    <div 
-                        className="shrink-0 h-full"
-                        style={{ width: `${rightWidth}px`, minWidth: '200px', maxWidth: '600px' }}
-                    >
-                        <CaseInfoPanel 
-                            revealedClues={gameState.revealedClues}
-                            gameId={gameState.gameId}
-                            scenarioName={gameState.scenarioName}
-                            victim={gameState.victim}
-                            location={gameState.location}
-                            timeOfIncident={gameState.timeOfIncident}
-                            personaCount={gameState.personas.length}
-                            pinnedMessages={pinnedMessages}
-                            messages={gameState.messages}
-                            personas={gameState.personas}
-                            autoNotes={gameState.autoNotes}
-                        />
+            )}
+
+            {/* Loading Screen */}
+            {game.status === 'loading' && (
+                <div className="min-h-screen flex items-center justify-center">
+                    <div className="text-center">
+                        <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                        <p className="text-muted-foreground">
+                            Generating your mystery...
+                        </p>
                     </div>
                 </div>
-                
-                {/* Accuse Modal */}
-                <AccuseModal 
-                    isOpen={showAccuseModal}
-                    onClose={() => setShowAccuseModal(false)}
-                    personas={gameState.personas}
-                    onAccuse={accusePersona}
-                    isLoading={isLoading}
-                    victimName={`${gameState.victim.name} (${gameState.victim.role})`}
+            )}
+
+            {/* Intro Screen */}
+            {game.status === 'intro' && (
+                <IntroScreen
+                    caseInfo={caseInfo}
+                    personas={game.personas}
+                    onBeginInvestigation={game.beginInvestigation}
                 />
-            </div>
+            )}
+
+            {/* Active Game */}
+            {(game.status === 'active' || game.status === 'solved' || game.status === 'failed') && (
+                <div className="h-screen flex flex-col">
+                    <GameHeader
+                        scenarioName={game.scenarioName}
+                        status={game.status}
+                        onAccuse={() => setShowAccuseModal(true)}
+                        onReset={game.reset}
+                    />
+
+                    <GameLayout
+                        personas={game.personas}
+                        selectedPersona={game.selectedPersona}
+                        messages={game.messages}
+                        caseInfo={caseInfo}
+                        revealedClues={game.revealedClues}
+                        notes={game.notes}
+                        isLoading={game.isLoading}
+                        pinnedMessages={game.pinnedMessages}
+                        savedMessages={game.savedMessages}
+                        gameId={game.gameId}
+                        onSelectPersona={game.selectPersona}
+                        onSendMessage={game.sendMessage}
+                        onNotesChange={game.setNotes}
+                        onPinMessage={game.togglePin}
+                        onSaveToNotes={game.saveToNotes}
+                        getUnreadCount={game.getUnreadCount}
+                    />
+
+                    {/* Result Overlay */}
+                    {(game.status === 'solved' || game.status === 'failed') && game.solution && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className={`max-w-md w-full p-8 rounded-2xl text-center ${
+                                game.status === 'solved' 
+                                    ? 'bg-green-50 border-2 border-green-200' 
+                                    : 'bg-red-50 border-2 border-red-200'
+                            }`}>
+                                <div className="text-6xl mb-4">
+                                    {game.status === 'solved' ? '🎉' : '💀'}
+                                </div>
+                                <h2 className={`text-2xl font-bold mb-4 ${
+                                    game.status === 'solved' ? 'text-green-800' : 'text-red-800'
+                                }`}>
+                                    {game.status === 'solved' ? 'Case Solved!' : 'Case Failed'}
+                                </h2>
+                                <p className={`mb-6 ${
+                                    game.status === 'solved' ? 'text-green-700' : 'text-red-700'
+                                }`}>
+                                    {game.solution.message}
+                                </p>
+                                <button
+                                    onClick={game.reset}
+                                    className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                                >
+                                    Play Again
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Accuse Modal */}
+            <AccuseModal
+                isOpen={showAccuseModal}
+                onClose={() => setShowAccuseModal(false)}
+                personas={game.personas}
+                onAccuse={handleAccuse}
+                isLoading={game.isLoading}
+            />
         </>
     );
 }

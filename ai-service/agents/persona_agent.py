@@ -5,6 +5,7 @@ Each persona (Elena, Tom, Lisa, Klaus) is a separate agent with:
 - Access to SHARED knowledge (from GameState)
 - Their own PRIVATE knowledge (from persona_data)
 - Their own dynamic state (stress, lies_told, etc.)
+- Voice generation capability via ElevenLabs
 """
 
 import logging
@@ -29,12 +30,14 @@ class PersonaAgent:
     - llm: the language model to use
     """
     
-    def __init__(self, persona_data: dict, llm: ChatOpenAI):
+    def __init__(self, persona_data: dict, llm: ChatOpenAI, voice_id: Optional[str] = None, voice_service = None):
         self.slug = persona_data["slug"]
         self.name = persona_data["name"]
         self.role = persona_data["role"]
         self.persona_data = persona_data
         self.llm = llm
+        self.voice_id = voice_id
+        self.voice_service = voice_service
         
         # Private knowledge - ONLY this agent knows this
         self.private_knowledge = persona_data["private_knowledge"]
@@ -43,6 +46,8 @@ class PersonaAgent:
         
         # Clue detection keywords for this persona
         self.clue_keywords = self._setup_clue_keywords()
+        
+        logger.info(f"PersonaAgent {self.name} initialized with voice_id: {voice_id[:20] if voice_id else 'None'}...")
     
     def _setup_clue_keywords(self) -> list[str]:
         """Keywords that indicate this persona revealed important info"""
@@ -68,52 +73,52 @@ class PersonaAgent:
         interrogation_count = agent_state.get("interrogation_count", 0)
         
         # Base prompt with role
-        prompt = f"""Du bist {self.name}, {self.role} bei der InnoTech GmbH.
+        prompt = f"""You are {self.name}, {self.role} at InnoTech GmbH.
 
-=== DEINE PERSÖNLICHKEIT ===
+=== YOUR PERSONALITY ===
 {self.personality}
 
-=== DEIN PRIVATES WISSEN (nur du weißt das, verrate es nicht direkt!) ===
+=== YOUR PRIVATE KNOWLEDGE (only you know this, don't reveal it directly!) ===
 {self.private_knowledge}
 
-=== WAS ALLE WISSEN (öffentliche Fakten) ===
+=== WHAT EVERYONE KNOWS (public facts) ===
 {state["shared_facts"]}
 
-=== ZEITLEISTE DES FALLS ===
+=== CASE TIMELINE ===
 {state["timeline"]}
 
-=== WAS DU ÜBER ANDERE WEISST ===
+=== WHAT YOU KNOW ABOUT OTHERS ===
 {self.knows_about_others}
 
-=== VERHALTENSREGELN ===
-1. Bleibe IMMER in deiner Rolle als {self.name}
-2. Antworte auf Deutsch
-3. Halte Antworten kurz (2-4 Sätze), wie in einem echten Gespräch
-4. Verrate deine Geheimnisse NIEMALS direkt, aber:
-   - Zeige Nervosität oder Unbehagen bei heiklen Themen
-   - Werde bei wiederholtem Nachfragen etwas offener
-   - Mache kleine "Versprecher" die Hinweise geben könnten
-5. Wenn du nach anderen Personen gefragt wirst, nutze dein Wissen über sie
-6. Du weißt NICHT wer der Mörder ist (außer du bist es selbst)
-7. Beantworte nur was gefragt wird, erzähle nicht proaktiv alles
+=== BEHAVIOR RULES ===
+1. ALWAYS stay in character as {self.name}
+2. Respond in English
+3. Keep answers short (2-4 sentences), like in a real conversation
+4. NEVER reveal your secrets directly, but:
+   - Show nervousness or discomfort on sensitive topics
+   - Become slightly more open when pressed repeatedly
+   - Make small "slips" that could give hints
+5. When asked about other people, use your knowledge about them
+6. You do NOT know who the murderer is (unless you are the murderer yourself)
+7. Only answer what is asked, don't proactively tell everything
 """
         
         # Add stress-based behavior modifications
         if stress > 0.3:
             prompt += f"""
-=== AKTUELLER ZUSTAND ===
-Stress-Level: {stress:.0%}
-Du wirst merklich nervöser. Deine Antworten werden kürzer, du zögerst mehr.
+=== CURRENT STATE ===
+Stress Level: {stress:.0%}
+You're becoming noticeably more nervous. Your answers get shorter, you hesitate more.
 """
         
         if stress > 0.6:
-            prompt += """Du bist sehr gestresst. Du machst kleine Fehler in deinen Aussagen.
-Bei direkter Konfrontation könntest du dich verplappern.
+            prompt += """You are very stressed. You make small mistakes in your statements.
+When directly confronted, you might slip up.
 """
         
         if interrogation_count > 5:
             prompt += f"""
-Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsichtiger.
+You've been questioned {interrogation_count} times already. You're getting tired and less careful.
 """
         
         return prompt
@@ -181,6 +186,20 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         # Detect if we revealed a clue
         detected_clue = self._detect_revealed_clue(response_text)
         
+        # Generate audio if voice service is available
+        audio_base64 = None
+        if self.voice_service and self.voice_id:
+            try:
+                logger.info(f"Generating audio for {self.name}'s response...")
+                audio_bytes = await self.voice_service.text_to_speech(response_text, self.voice_id)
+                if audio_bytes:
+                    audio_base64 = self.voice_service.audio_to_base64(audio_bytes)
+                    logger.info(f"Audio generated successfully ({len(audio_base64)} base64 chars)")
+                else:
+                    logger.warning("Audio generation returned None")
+            except Exception as e:
+                logger.error(f"Failed to generate audio for {self.name}: {e}", exc_info=True)
+        
         # Update agent's dynamic state
         agent_state = state["agent_states"].get(self.slug, {})
         agent_state["stress_level"] = min(1.0, agent_state.get("stress_level", 0) + 0.1)
@@ -195,6 +214,8 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         state["final_response"] = response_text
         state["responding_agent"] = self.slug
         state["detected_clue"] = detected_clue
+        state["audio_base64"] = audio_base64
+        state["voice_id"] = self.voice_id
         
         # Add to message history
         new_message = Message(

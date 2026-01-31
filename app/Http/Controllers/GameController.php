@@ -214,6 +214,8 @@ class GameController extends Controller
                 'persona_name' => $response['persona_name'],
                 'response' => $response['response'],
                 'revealed_clue' => $response['revealed_clue'] ?? null,
+                'audio_base64' => $response['audio_base64'] ?? null,
+                'voice_id' => $response['voice_id'] ?? null,
             ]);
         } catch (\Exception $e) {
             return response()->json([

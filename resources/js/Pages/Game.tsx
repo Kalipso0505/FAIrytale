@@ -27,6 +27,7 @@ interface Message {
     is_user: boolean;
     created_at?: string;
     messageId?: string; // Required for pinning/saving
+    audio_base64?: string; // Audio from ElevenLabs
 }
 
 interface GameState {
@@ -352,6 +353,7 @@ export default function Game({}: Props) {
                 content: data.response,
                 is_user: false,
                 messageId: personaMessageId,
+                audio_base64: data.audio_base64, // Include audio from API
             };
             
             setGameState(prev => {

@@ -58,9 +58,9 @@ class ScenarioGenerator:
         system_prompt = self.prompt_template
         
         if user_input.strip():
-            user_prompt = f"Der User möchte folgendes Szenario:\n\n{user_input}\n\nSchwierigkeit: {difficulty}\n\nErstelle das Szenario!"
+            user_prompt = f"The user wants the following scenario:\n\n{user_input}\n\nDifficulty: {difficulty}\n\nCreate the scenario in English!"
         else:
-            user_prompt = f"Erstelle ein zufälliges, kreatives Murder Mystery Szenario.\n\nSchwierigkeit: {difficulty}\n\nÜberrasche mich!"
+            user_prompt = f"Create a random, creative Murder Mystery scenario in English.\n\nDifficulty: {difficulty}\n\nSurprise me!"
         
         # Call GPT
         messages = [

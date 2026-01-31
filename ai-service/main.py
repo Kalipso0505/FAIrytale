@@ -101,6 +101,8 @@ class ChatResponse(BaseModel):
     revealed_clue: Optional[str] = None
     agent_stress: float = 0.0
     interrogation_count: int = 0
+    audio_base64: Optional[str] = None
+    voice_id: Optional[str] = None
 
 
 class GameStartRequest(BaseModel):
@@ -108,12 +110,22 @@ class GameStartRequest(BaseModel):
     game_id: str
 
 
+class VictimInfo(BaseModel):
+    """Victim information"""
+    name: str
+    role: str
+    description: str
+
+
 class GameStartResponse(BaseModel):
     """Response for game start"""
     game_id: str
     scenario_name: str
     setting: str
-    victim: str
+    victim: VictimInfo
+    location: str
+    time_of_incident: str
+    timeline: str
     personas: list[dict]
     intro_message: str
 
@@ -314,7 +326,9 @@ async def chat_with_persona(request: ChatRequest):
             persona_name=agent.name if agent else request.persona_slug,
             revealed_clue=final_state.get("detected_clue"),
             agent_stress=agent_state.get("stress_level", 0.0),
-            interrogation_count=agent_state.get("interrogation_count", 0)
+            interrogation_count=agent_state.get("interrogation_count", 0),
+            audio_base64=final_state.get("audio_base64"),
+            voice_id=final_state.get("voice_id")
         )
         
     except Exception as e:

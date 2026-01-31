@@ -5,6 +5,7 @@ The GameMaster:
 - Initializes game state with shared knowledge
 - Routes user messages to the correct persona agent
 - Manages game flow and state transitions
+- Assigns voices to personas using VoiceService
 - Could provide hints in the future
 """
 
@@ -16,6 +17,7 @@ from langchain_openai import ChatOpenAI
 
 from .state import GameState, create_initial_game_state, Message
 from .persona_agent import PersonaAgent
+from services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +33,10 @@ class GameMasterAgent:
     - (Future) Provide hints and detect contradictions
     """
     
-    def __init__(self, scenario: dict, model_name: str = "gpt-4o-mini"):
+    def __init__(self, scenario: dict, model_name: str = "gpt-4o-mini", voice_service: Optional[VoiceService] = None):
         self.scenario = scenario
         self.model_name = model_name
+        self.voice_service = voice_service or VoiceService()
         
         # Initialize LLM
         self.llm = ChatOpenAI(
@@ -42,28 +45,59 @@ class GameMasterAgent:
             api_key=os.getenv("OPENAI_API_KEY")
         )
         
+        # Assign voices to personas
+        # For default scenario, use fixed mapping
+        fixed_voice_mapping = self._get_fixed_voice_mapping_if_default()
+        self.voice_assignments = self.voice_service.assign_voices_to_personas(
+            scenario["personas"],
+            fixed_mapping=fixed_voice_mapping
+        )
+        logger.info(f"Voice assignments: {self.voice_assignments}")
+        
         # Initialize persona agents - each is a SEPARATE agent instance
         self.persona_agents: dict[str, PersonaAgent] = {}
         for persona_data in scenario["personas"]:
-            agent = PersonaAgent(persona_data, self.llm)
+            voice_id = self.voice_assignments.get(persona_data["slug"])
+            agent = PersonaAgent(persona_data, self.llm, voice_id, self.voice_service)
             self.persona_agents[persona_data["slug"]] = agent
-            logger.info(f"Initialized agent: {agent}")
+            logger.info(f"Initialized agent: {agent} with voice: {voice_id[:20] if voice_id else 'None'}...")
         
         # Game states storage (in-memory for now, could be Redis/DB)
         self.game_states: dict[str, GameState] = {}
         
         logger.info(f"GameMaster initialized with {len(self.persona_agents)} persona agents")
     
+    def _get_fixed_voice_mapping_if_default(self) -> Optional[dict[str, str]]:
+        """
+        Return fixed voice mapping for default scenario.
+        For the default case (Villa Sonnenhof), we use fixed voices regardless of gender.
+        """
+        scenario_name = self.scenario.get("name", "")
+        
+        # Check if this is the default scenario
+        if "Villa Sonnenhof" in scenario_name or "default" in scenario_name.lower():
+            logger.info("Using fixed voice mapping for default scenario")
+            # Fixed mapping for default scenario personas
+            # Using round-robin from all 8 voices
+            return {
+                "sophie": os.getenv("ELEVENLABS_VOICE_FEMALE_1", ""),
+                "robert": os.getenv("ELEVENLABS_VOICE_MALE_1", ""),
+                "thomas": os.getenv("ELEVENLABS_VOICE_MALE_2", ""),
+                "isabella": os.getenv("ELEVENLABS_VOICE_FEMALE_2", ""),
+            }
+        
+        return None
+    
     def initialize_game(self, game_id: str) -> GameState:
         """
         Start a new game session.
         
-        Creates initial state with all shared knowledge.
+        Creates initial state with all shared knowledge and voice assignments.
         """
-        state = create_initial_game_state(game_id, self.scenario)
+        state = create_initial_game_state(game_id, self.scenario, self.voice_assignments)
         self.game_states[game_id] = state
         
-        logger.info(f"Game {game_id} initialized")
+        logger.info(f"Game {game_id} initialized with voice assignments")
         return state
     
     def get_game_state(self, game_id: str) -> Optional[GameState]:

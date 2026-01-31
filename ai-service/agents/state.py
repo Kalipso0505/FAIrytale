@@ -45,6 +45,10 @@ class GameState(TypedDict):
     RESPONSE:
     - final_response: the generated answer
     - responding_agent: who answered
+    
+    VOICE (ElevenLabs):
+    - voice_assignments: mapping of persona slugs to voice IDs
+    - audio_base64: generated audio for current response
     """
     
     # === Game Identification ===
@@ -59,6 +63,9 @@ class GameState(TypedDict):
     
     # === Personas Info (public info about all characters) ===
     personas_public_info: dict[str, dict]  # slug -> {name, role, public_description}
+    
+    # === Voice Assignments (ElevenLabs) ===
+    voice_assignments: dict[str, str]  # slug -> voice_id
     
     # === Current Request ===
     user_message: str
@@ -78,6 +85,8 @@ class GameState(TypedDict):
     final_response: str
     responding_agent: str
     detected_clue: Optional[str]  # If this response reveals a clue
+    audio_base64: Optional[str]  # Generated audio for the response
+    voice_id: Optional[str]  # Voice ID used for audio generation
 
 
 def create_initial_agent_state() -> AgentState:
@@ -93,6 +102,7 @@ def create_initial_agent_state() -> AgentState:
 def create_initial_game_state(
     game_id: str,
     scenario: dict,
+    voice_assignments: Optional[dict[str, str]] = None,
     user_message: str = "",
     selected_persona: str = ""
 ) -> GameState:
@@ -125,6 +135,7 @@ def create_initial_game_state(
         timeline=scenario["timeline"],
         shared_facts=scenario["shared_knowledge"],
         personas_public_info=personas_public,
+        voice_assignments=voice_assignments or {},
         user_message=user_message,
         selected_persona=selected_persona,
         messages=[],
@@ -133,5 +144,7 @@ def create_initial_game_state(
         game_status="active",
         final_response="",
         responding_agent="",
-        detected_clue=None
+        detected_clue=None,
+        audio_base64=None,
+        voice_id=None
     )

@@ -16,6 +16,7 @@ interface Message {
     is_user: boolean;
     created_at?: string;
     messageId?: string; // Unique ID for pinning/saving
+    audio_base64?: string; // Generated audio from ElevenLabs
 }
 
 interface ChatWindowProps {
@@ -46,6 +47,8 @@ export function ChatWindow({
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,6 +76,69 @@ export function ChatWindow({
             handleSubmit(e);
         }
     };
+
+    const handlePlayAudio = (messageId: string, audioBase64: string) => {
+        // Stop currently playing audio if any
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+
+        // If clicking the same message, just stop
+        if (playingMessageId === messageId) {
+            setPlayingMessageId(null);
+            return;
+        }
+
+        try {
+            // Convert base64 to blob
+            const binaryString = atob(audioBase64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: 'audio/mpeg' });
+            const audioUrl = URL.createObjectURL(blob);
+
+            // Create and play audio
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            setPlayingMessageId(messageId);
+
+            audio.onended = () => {
+                setPlayingMessageId(null);
+                URL.revokeObjectURL(audioUrl);
+                audioRef.current = null;
+            };
+
+            audio.onerror = () => {
+                console.error('Audio playback error');
+                setPlayingMessageId(null);
+                URL.revokeObjectURL(audioUrl);
+                audioRef.current = null;
+            };
+
+            audio.play().catch(err => {
+                console.error('Failed to play audio:', err);
+                setPlayingMessageId(null);
+                URL.revokeObjectURL(audioUrl);
+                audioRef.current = null;
+            });
+        } catch (error) {
+            console.error('Failed to decode audio:', error);
+            setPlayingMessageId(null);
+        }
+    };
+
+    // Cleanup audio on unmount
+    useEffect(() => {
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+        };
+    }, []);
 
     return (
         <div className="h-full flex flex-col cia-bg-panel border border-white/10">
@@ -156,6 +222,25 @@ export function ChatWindow({
                                 {/* Action buttons - visible on hover, top right - nur für Persona-Nachrichten */}
                                 {!message.is_user && (
                                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
+                                        {/* Play Audio Button - only show if audio is available */}
+                                        {message.audio_base64 && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handlePlayAudio(messageId, message.audio_base64!);
+                                                }}
+                                                className={`
+                                                    w-6 h-6 rounded flex items-center justify-center transition-colors
+                                                    ${playingMessageId === messageId
+                                                        ? 'bg-green-500/30 text-green-300 hover:bg-green-500/40' 
+                                                        : 'cia-bg-dark border border-white/10 text-gray-400 hover:text-green-400 hover:border-green-500/30'
+                                                    }
+                                                `}
+                                                title={playingMessageId === messageId ? 'Läuft...' : 'Vorlesen'}
+                                            >
+                                                <span className="text-xs">{playingMessageId === messageId ? '⏸' : '🔊'}</span>
+                                            </button>
+                                        )}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -191,12 +276,12 @@ export function ChatWindow({
                                     </div>
                                 )}
                                 
-                                {!message.is_user && (
-                                    <div className="text-xs text-white font-semibold mb-1 pr-12">
-                                        {persona.name}
-                                    </div>
-                                )}
-                                <p className={`whitespace-pre-wrap cia-text ${message.is_user ? 'text-white' : 'text-gray-200'} text-sm leading-relaxed pr-8`}>
+                                                {!message.is_user && (
+                                                    <div className="text-xs text-white font-semibold mb-1 pr-12">
+                                                        {persona.name}
+                                                    </div>
+                                                )}
+                                                <p className={`whitespace-pre-wrap cia-text ${message.is_user ? 'text-white' : 'text-gray-200'} text-sm leading-relaxed ${message.audio_base64 ? 'pr-10' : 'pr-8'}`}>
                                     {message.content}
                                 </p>
                             </div>

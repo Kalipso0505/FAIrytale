@@ -11,6 +11,7 @@ use Dedoc\Scramble\Attributes\ExcludeRouteFromDocs;
 use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -24,6 +25,11 @@ class GameController extends Controller
     public function __construct(
         private readonly AiService $aiService
     ) {}
+
+    private function log(string $level, string $message, array $context = []): void
+    {
+        Log::channel('game')->{$level}($message, $context);
+    }
 
     /**
      * Show the game page
@@ -53,6 +59,14 @@ class GameController extends Controller
             'expires_at' => now()->addMinutes(60),
         ]);
 
+        $this->log('info', 'Game created', [
+            'game_id' => $game->id,
+            'difficulty' => $validated['difficulty'],
+            'type' => 'generated',
+        ]);
+
+        $startTime = microtime(true);
+
         try {
             // Generate scenario via AI Service
             $scenarioResult = $this->aiService->generateScenario(
@@ -63,6 +77,14 @@ class GameController extends Controller
 
             // Initialize game with generated scenario
             $gameInfo = $this->aiService->startGame($game->id);
+
+            $duration = round(microtime(true) - $startTime, 2);
+
+            $this->log('info', 'Game started', [
+                'game_id' => $game->id,
+                'scenario' => $gameInfo['scenario_name'] ?? 'unknown',
+                'generation_sec' => $duration,
+            ]);
 
             return response()->json([
                 'game_id' => $game->id,
@@ -76,6 +98,14 @@ class GameController extends Controller
                 'intro_message' => $gameInfo['intro_message'],
             ]);
         } catch (\Exception $e) {
+            $duration = round(microtime(true) - $startTime, 2);
+
+            $this->log('error', 'Game generation failed', [
+                'game_id' => $game->id,
+                'error' => $e->getMessage(),
+                'duration_sec' => $duration,
+            ]);
+
             // Cleanup on failure
             $game->delete();
 
@@ -97,9 +127,19 @@ class GameController extends Controller
             'expires_at' => now()->addMinutes(60),
         ]);
 
+        $this->log('info', 'Game created', [
+            'game_id' => $game->id,
+            'type' => 'quick_start',
+        ]);
+
         try {
             // Load default scenario instantly (no AI generation)
             $gameInfo = $this->aiService->quickStartScenario($game->id);
+
+            $this->log('info', 'Game started', [
+                'game_id' => $game->id,
+                'scenario' => $gameInfo['scenario_name'] ?? 'default',
+            ]);
 
             return response()->json([
                 'game_id' => $game->id,
@@ -113,6 +153,11 @@ class GameController extends Controller
                 'intro_message' => $gameInfo['intro_message'],
             ]);
         } catch (\Exception $e) {
+            $this->log('error', 'Quick start failed', [
+                'game_id' => $game->id,
+                'error' => $e->getMessage(),
+            ]);
+
             // Cleanup on failure
             $game->delete();
 
@@ -135,9 +180,24 @@ class GameController extends Controller
             'revealed_clues' => [],
         ]);
 
+        $this->log('info', 'Game created', [
+            'game_id' => $game->id,
+            'type' => 'legacy_start',
+        ]);
+
         try {
             $gameInfo = $this->aiService->startGame($game->id);
+
+            $this->log('info', 'Game started', [
+                'game_id' => $game->id,
+                'scenario' => $gameInfo['scenario_name'] ?? 'office_murder',
+            ]);
         } catch (\Exception $e) {
+            $this->log('warning', 'AI service unavailable, using fallback', [
+                'game_id' => $game->id,
+                'error' => $e->getMessage(),
+            ]);
+
             // AI service might not be running, return basic info
             $gameInfo = $this->getFallbackGameInfo($game->id);
         }
@@ -166,6 +226,11 @@ class GameController extends Controller
         $game = Game::findOrFail($validated['game_id']);
 
         if (! $game->isActive()) {
+            $this->log('warning', 'Chat attempted on inactive game', [
+                'game_id' => $game->id,
+                'status' => $game->status,
+            ]);
+
             return response()->json([
                 'error' => 'Game is not active',
             ], 400);
@@ -212,6 +277,12 @@ class GameController extends Controller
                 $clues = $game->revealed_clues ?? [];
                 $clues[] = $response['revealed_clue'];
                 $game->update(['revealed_clues' => array_unique($clues)]);
+
+                $this->log('info', 'Clue revealed', [
+                    'game_id' => $game->id,
+                    'persona' => $validated['persona_slug'],
+                    'total_clues' => count($clues),
+                ]);
             }
 
             return response()->json([
@@ -221,6 +292,12 @@ class GameController extends Controller
                 'revealed_clue' => $response['revealed_clue'] ?? null,
             ]);
         } catch (\Exception $e) {
+            $this->log('error', 'Chat failed', [
+                'game_id' => $game->id,
+                'persona' => $validated['persona_slug'],
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'error' => 'AI Service nicht erreichbar. Bitte versuche es später erneut.',
                 'details' => config('app.debug') ? $e->getMessage() : null,
@@ -262,6 +339,11 @@ class GameController extends Controller
         $game = Game::findOrFail($validated['game_id']);
 
         if (! $game->isActive()) {
+            $this->log('warning', 'Accusation on inactive game', [
+                'game_id' => $game->id,
+                'status' => $game->status,
+            ]);
+
             return response()->json(['error' => 'Game is not active'], 400);
         }
 
@@ -269,6 +351,13 @@ class GameController extends Controller
         // For generated scenarios, we need to get this from AI service
         $correct = $validated['accused_persona'] === 'tom';
         $game->solve($validated['accused_persona'], $correct);
+
+        $this->log('info', 'Game accusation', [
+            'game_id' => $game->id,
+            'accused' => $validated['accused_persona'],
+            'correct' => $correct,
+            'clues_revealed' => count($game->revealed_clues ?? []),
+        ]);
 
         $result = [
             'correct' => $correct,
@@ -281,6 +370,10 @@ class GameController extends Controller
         if ($correct) {
             $game->messages()->delete();
             $game->delete();
+
+            $this->log('info', 'Game completed and cleaned up', [
+                'game_id' => $validated['game_id'],
+            ]);
         }
 
         return response()->json($result);

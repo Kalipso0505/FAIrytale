@@ -285,11 +285,35 @@ class GameController extends Controller
                 ]);
             }
 
+            // Update auto_notes (grouped by persona)
+            $newAutoNotes = $response['new_auto_notes'] ?? [];
+            $allAutoNotes = $response['all_auto_notes'] ?? [];
+            
+            // DEBUG: Log the auto notes from AI service response
+            $this->log('debug', 'Auto notes from AI service', [
+                'game_id' => $game->id,
+                'new_auto_notes_count' => count($newAutoNotes),
+                'all_auto_notes_keys' => array_keys($allAutoNotes),
+                'all_auto_notes_sample' => json_encode(array_slice($allAutoNotes, 0, 1)),
+            ]);
+
+            if (! empty($allAutoNotes)) {
+                $game->update(['auto_notes' => $allAutoNotes]);
+
+                $this->log('info', 'Auto notes updated', [
+                    'game_id' => $game->id,
+                    'persona' => $validated['persona_slug'],
+                    'new_notes_count' => count($newAutoNotes),
+                ]);
+            }
+
             return response()->json([
                 'persona_slug' => $response['persona_slug'],
                 'persona_name' => $response['persona_name'],
                 'response' => $response['response'],
                 'revealed_clue' => $response['revealed_clue'] ?? null,
+                'new_auto_notes' => $newAutoNotes,
+                'all_auto_notes' => $allAutoNotes,
                 'audio_base64' => $response['audio_base64'] ?? null,
                 'voice_id' => $response['voice_id'] ?? null,
             ]);

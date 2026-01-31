@@ -21,6 +21,13 @@ interface Victim {
     description: string;
 }
 
+interface AutoNote {
+    text: string;
+    category: 'alibi' | 'motive' | 'relationship' | 'observation' | 'contradiction';
+    timestamp: string;
+    source_message: string;
+}
+
 interface CaseInfoPanelProps {
     revealedClues: string[];
     gameId: string | null;
@@ -32,9 +39,18 @@ interface CaseInfoPanelProps {
     pinnedMessages?: Set<string>;
     messages?: Record<string, Message[]>;
     personas?: Persona[];
+    autoNotes?: Record<string, AutoNote[]>;
 }
 
-type TabType = 'notes' | 'evidence' | 'case';
+type TabType = 'notes' | 'intel' | 'evidence' | 'case';
+
+const categoryConfig: Record<string, { label: string; color: string; icon: string }> = {
+    alibi: { label: 'ALIBI', color: 'text-blue-400 border-blue-500/30 bg-blue-500/10', icon: '🕐' },
+    motive: { label: 'MOTIV', color: 'text-red-400 border-red-500/30 bg-red-500/10', icon: '⚡' },
+    relationship: { label: 'BEZIEHUNG', color: 'text-purple-400 border-purple-500/30 bg-purple-500/10', icon: '🔗' },
+    observation: { label: 'BEOBACHTUNG', color: 'text-green-400 border-green-500/30 bg-green-500/10', icon: '👁️' },
+    contradiction: { label: 'WIDERSPRUCH', color: 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10', icon: '⚠️' },
+};
 
 export function CaseInfoPanel({ 
     revealedClues, 
@@ -46,10 +62,24 @@ export function CaseInfoPanel({
     personaCount,
     pinnedMessages = new Set(), 
     messages = {}, 
-    personas = [] 
+    personas = [],
+    autoNotes = {}
 }: CaseInfoPanelProps) {
-    const [activeTab, setActiveTab] = useState<TabType>('case');
+    const [activeTab, setActiveTab] = useState<TabType>('intel');
     const [notes, setNotes] = useState<string>('');
+    const [collapsedPersonas, setCollapsedPersonas] = useState<Set<string>>(new Set());
+    
+    const togglePersona = (slug: string) => {
+        setCollapsedPersonas(prev => {
+            const next = new Set(prev);
+            if (next.has(slug)) {
+                next.delete(slug);
+            } else {
+                next.add(slug);
+            }
+            return next;
+        });
+    };
     
     // Load notes from localStorage
     useEffect(() => {
@@ -101,10 +131,19 @@ export function CaseInfoPanel({
         return pinned;
     };
     
-    const tabs: { id: TabType; label: string }[] = [
+    // Count total auto notes
+    const totalAutoNotes = Object.values(autoNotes).reduce((sum, notes) => sum + notes.length, 0);
+    
+    // DEBUG: Log autoNotes prop
+    console.log('=== CASE INFO PANEL DEBUG ===');
+    console.log('autoNotes prop:', autoNotes);
+    console.log('totalAutoNotes:', totalAutoNotes);
+    
+    const tabs: { id: TabType; label: string; badge?: number }[] = [
+        { id: 'intel', label: 'INTEL', badge: totalAutoNotes },
         { id: 'notes', label: 'NOTIZEN' },
-        { id: 'evidence', label: 'EVIDENCE STORAGE' },
-        { id: 'case', label: 'CASE INFORMATION' },
+        { id: 'evidence', label: 'BEWEISE' },
+        { id: 'case', label: 'FALL' },
     ];
 
     return (
@@ -117,8 +156,8 @@ export function CaseInfoPanel({
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={`
-                                flex-1 px-3 py-2 text-xs cia-text uppercase font-bold transition-colors
-                                border-r border-white/10 last:border-r-0
+                                flex-1 px-2 py-2 text-xs cia-text uppercase font-bold transition-colors
+                                border-r border-white/10 last:border-r-0 relative
                                 ${activeTab === tab.id
                                     ? 'text-white bg-white/5 border-b-2 border-white/20'
                                     : 'text-gray-400 hover:text-gray-300 hover:bg-black/30'
@@ -126,6 +165,11 @@ export function CaseInfoPanel({
                             `}
                         >
                             {tab.label}
+                            {tab.badge && tab.badge > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-yellow-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                                    {tab.badge}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </div>
@@ -133,6 +177,155 @@ export function CaseInfoPanel({
             
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto cia-scrollbar">
+                {activeTab === 'intel' && (
+                    <div className="p-2">
+                        {totalAutoNotes > 0 ? (
+                            <div className="space-y-1.5">
+                                {/* VICTIM SECTION - Collect all notes mentioning the victim */}
+                                {(() => {
+                                    const victimName = victim.name;
+                                    const victimFirstName = victimName.split(' ')[0];
+                                    const victimNameLower = victimName.toLowerCase();
+                                    const victimFirstNameLower = victimFirstName.toLowerCase();
+                                    
+                                    // Collect all notes about the victim from all personas
+                                    const victimNotes: Array<{ note: AutoNote; source: string }> = [];
+                                    const seenVictimTexts = new Set<string>();
+                                    
+                                    personas.forEach(persona => {
+                                        const personaNotes = autoNotes[persona.slug] || [];
+                                        personaNotes.forEach(note => {
+                                            const textLower = note.text.toLowerCase();
+                                            // Check if note mentions the victim
+                                            if (textLower.includes(victimNameLower) || 
+                                                textLower.includes(victimFirstNameLower) ||
+                                                textLower.includes('opfer') ||
+                                                textLower.includes('verstorbene') ||
+                                                textLower.includes('tote')) {
+                                                // Deduplicate
+                                                const normalized = textLower;
+                                                if (!seenVictimTexts.has(normalized)) {
+                                                    seenVictimTexts.add(normalized);
+                                                    victimNotes.push({ 
+                                                        note, 
+                                                        source: persona.name.split(' ')[0] 
+                                                    });
+                                                }
+                                            }
+                                        });
+                                    });
+                                    
+                                    if (victimNotes.length === 0) return null;
+                                    
+                                    const isVictimCollapsed = collapsedPersonas.has('_victim');
+                                    
+                                    return (
+                                        <div className="border border-red-500/30 bg-red-500/5 rounded overflow-hidden">
+                                            {/* Victim Header */}
+                                            <button
+                                                onClick={() => togglePersona('_victim')}
+                                                className="w-full px-2 py-1.5 bg-red-500/10 flex items-center justify-between hover:bg-red-500/20 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] text-red-400 transition-transform ${isVictimCollapsed ? '' : 'rotate-90'}`}>▶</span>
+                                                    <span className="text-xs font-bold text-red-400 cia-text">☠ {victimName}</span>
+                                                    <span className="text-[10px] text-red-400/60">(OPFER)</span>
+                                                </div>
+                                                <span className="text-[10px] text-red-400 bg-red-500/20 px-1.5 rounded">{victimNotes.length}</span>
+                                            </button>
+                                            {/* Victim Notes */}
+                                            {!isVictimCollapsed && (
+                                                <div className="p-1.5 pt-1 space-y-0.5 border-t border-red-500/20">
+                                                    {victimNotes.map(({ note, source }, idx) => {
+                                                        const config = categoryConfig[note.category] || categoryConfig.observation;
+                                                        return (
+                                                            <div key={idx} className="flex items-start gap-1.5 px-1 py-0.5">
+                                                                <span className="text-[11px] shrink-0" title={config.label}>{config.icon}</span>
+                                                                <span className="text-[11px] text-white/90 cia-text leading-tight">{note.text}</span>
+                                                                <span className="text-[9px] text-gray-500 shrink-0">({source})</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                                
+                                {/* Group by persona, then by category */}
+                                {personas.map(persona => {
+                                    const personaNotes = autoNotes[persona.slug] || [];
+                                    if (personaNotes.length === 0) return null;
+                                    
+                                    const isCollapsed = collapsedPersonas.has(persona.slug);
+                                    const firstName = persona.name.split(' ')[0];
+                                    
+                                    // Deduplicate notes by text and remove persona name from text
+                                    const seenTexts = new Set<string>();
+                                    const uniqueNotes = personaNotes.filter(note => {
+                                        const normalized = note.text.toLowerCase();
+                                        if (seenTexts.has(normalized)) return false;
+                                        seenTexts.add(normalized);
+                                        return true;
+                                    }).map(note => ({
+                                        ...note,
+                                        // Remove persona name from the beginning of the note
+                                        text: note.text
+                                            .replace(new RegExp(`^${persona.name}\\s*`, 'i'), '')
+                                            .replace(new RegExp(`^${firstName}\\s*`, 'i'), '')
+                                            .replace(/^(hat|ist|war|wurde|erwähnte|sagte|meinte)\s*/i, (match) => match.charAt(0).toUpperCase() + match.slice(1))
+                                    }));
+                                    
+                                    // Group notes by category
+                                    const notesByCategory = uniqueNotes.reduce((acc, note) => {
+                                        if (!acc[note.category]) acc[note.category] = [];
+                                        acc[note.category].push(note);
+                                        return acc;
+                                    }, {} as Record<string, AutoNote[]>);
+                                    
+                                    return (
+                                        <div key={persona.slug} className="cia-bg-dark border border-white/10 rounded overflow-hidden">
+                                            {/* Persona Header - Clickable */}
+                                            <button
+                                                onClick={() => togglePersona(persona.slug)}
+                                                className="w-full px-2 py-1.5 bg-white/5 flex items-center justify-between hover:bg-white/10 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
+                                                    <span className="text-xs font-bold text-white cia-text">{persona.name}</span>
+                                                </div>
+                                                <span className="text-[10px] text-gray-400 bg-white/10 px-1.5 rounded">{uniqueNotes.length}</span>
+                                            </button>
+                                            {/* Notes grouped by category - Collapsible */}
+                                            {!isCollapsed && (
+                                                <div className="p-1.5 pt-1 space-y-0.5 border-t border-white/5">
+                                                    {(['alibi', 'motive', 'relationship', 'observation', 'contradiction'] as const).map(category => {
+                                                        const notes = notesByCategory[category];
+                                                        if (!notes || notes.length === 0) return null;
+                                                        const config = categoryConfig[category];
+                                                        
+                                                        return notes.map((note, idx) => (
+                                                            <div key={`${category}-${idx}`} className="flex items-start gap-1.5 px-1 py-0.5">
+                                                                <span className="text-[11px] shrink-0" title={config.label}>{config.icon}</span>
+                                                                <span className="text-[11px] text-white/90 cia-text leading-tight">{note.text}</span>
+                                                            </div>
+                                                        ));
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="cia-bg-dark border border-white/10 p-4 text-center">
+                                <p className="text-[10px] text-gray-400 cia-text">KEINE INTEL</p>
+                                <p className="text-[10px] text-gray-500 cia-text mt-1">Befrage Verdächtige</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
                 {activeTab === 'notes' && (
                     <div className="p-4 h-full flex flex-col">
                         <div className="mb-3">

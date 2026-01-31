@@ -18,6 +18,7 @@ class Game extends Model
         'scenario_slug',
         'status',
         'revealed_clues',
+        'auto_notes',
         'game_state',
         'accused_persona',
         'expires_at',
@@ -27,6 +28,7 @@ class Game extends Model
     {
         return [
             'revealed_clues' => 'array',
+            'auto_notes' => 'array',
             'game_state' => 'array',
             'expires_at' => 'datetime',
         ];

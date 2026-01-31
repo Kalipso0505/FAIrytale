@@ -30,6 +30,13 @@ interface Message {
     audio_base64?: string; // Audio from ElevenLabs
 }
 
+interface AutoNote {
+    text: string;
+    category: 'alibi' | 'motive' | 'relationship' | 'observation' | 'contradiction';
+    timestamp: string;
+    source_message: string;
+}
+
 interface GameState {
     gameId: string | null;
     status: 'not-started' | 'loading' | 'intro' | 'active' | 'solved' | 'failed';
@@ -46,6 +53,7 @@ interface GameState {
     personas: Persona[];
     introMessage: string;
     revealedClues: string[];
+    autoNotes: Record<string, AutoNote[]>; // Per persona
     messages: Record<string, Message[]>; // Per persona
 }
 
@@ -70,6 +78,7 @@ export default function Game({}: Props) {
         personas: [],
         introMessage: '',
         revealedClues: [],
+        autoNotes: {},
         messages: {},
     });
     const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
@@ -253,6 +262,7 @@ export default function Game({}: Props) {
                 personas: data.personas,
                 introMessage: data.intro_message,
                 revealedClues: [],
+                autoNotes: {},
                 messages: {},
             });
             // Reset read counts when starting new game
@@ -289,6 +299,7 @@ export default function Game({}: Props) {
                 personas: data.personas,
                 introMessage: data.intro_message,
                 revealedClues: [],
+                autoNotes: {},
                 messages: {},
             });
             // Reset read counts when starting new game
@@ -346,6 +357,11 @@ export default function Game({}: Props) {
             
             const data = response.data;
             
+            // DEBUG: Log auto notes from response
+            console.log('=== CHAT RESPONSE DEBUG ===');
+            console.log('all_auto_notes:', data.all_auto_notes);
+            console.log('new_auto_notes:', data.new_auto_notes);
+            
             // Add persona response
             const personaMessageId = `${gameState.gameId}-${personaSlug}-persona-${Date.now()}`;
             const personaMessage: Message = {
@@ -379,6 +395,8 @@ export default function Game({}: Props) {
                     revealedClues: data.revealed_clue 
                         ? [...prev.revealedClues, data.revealed_clue]
                         : prev.revealedClues,
+                    // Update auto notes from the response
+                    autoNotes: data.all_auto_notes || prev.autoNotes,
                 };
             });
         } catch (error: any) {
@@ -558,6 +576,7 @@ export default function Game({}: Props) {
                                         personas: [],
                                         introMessage: '',
                                         revealedClues: [],
+                                        autoNotes: {},
                                         messages: {},
                                     });
                                     setSolution(null);
@@ -691,6 +710,7 @@ export default function Game({}: Props) {
                             pinnedMessages={pinnedMessages}
                             messages={gameState.messages}
                             personas={gameState.personas}
+                            autoNotes={gameState.autoNotes}
                         />
                     </div>
                 </div>

@@ -117,6 +117,14 @@ class ChatRequest(BaseModel):
     chat_history: list[dict] = []
 
 
+class AutoNoteResponse(BaseModel):
+    """Auto-generated note from the conversation"""
+    text: str
+    category: str  # alibi, motive, relationship, observation, contradiction
+    timestamp: str
+    source_message: str
+
+
 class ChatResponse(BaseModel):
     """Response model for chat endpoint"""
     persona_slug: str
@@ -125,6 +133,8 @@ class ChatResponse(BaseModel):
     revealed_clue: Optional[str] = None
     agent_stress: float = 0.0
     interrogation_count: int = 0
+    new_auto_notes: list[AutoNoteResponse] = []  # Notes from this specific response
+    all_auto_notes: dict[str, list[AutoNoteResponse]] = {}  # All notes grouped by persona
     audio_base64: Optional[str] = None  # Base64 encoded audio from ElevenLabs
     voice_id: Optional[str] = None  # Voice ID used for audio generation
 
@@ -344,6 +354,30 @@ async def chat_with_persona(request: ChatRequest):
         logger.info(f"=== GRAPH COMPLETE ===")
         logger.info(f"Response from: {final_state.get('responding_agent')}")
         
+        # Convert auto notes to response format
+        new_notes = [
+            AutoNoteResponse(
+                text=note.get("text", ""),
+                category=note.get("category", "observation"),
+                timestamp=note.get("timestamp", ""),
+                source_message=note.get("source_message", "")
+            )
+            for note in final_state.get("new_auto_notes", [])
+        ]
+        
+        # Get all auto notes grouped by persona
+        all_notes = {}
+        for persona_slug, notes in final_state.get("auto_notes", {}).items():
+            all_notes[persona_slug] = [
+                AutoNoteResponse(
+                    text=note.get("text", ""),
+                    category=note.get("category", "observation"),
+                    timestamp=note.get("timestamp", ""),
+                    source_message=note.get("source_message", "")
+                )
+                for note in notes
+            ]
+        
         return ChatResponse(
             persona_slug=final_state.get("responding_agent", request.persona_slug),
             response=final_state.get("final_response", ""),
@@ -351,6 +385,8 @@ async def chat_with_persona(request: ChatRequest):
             revealed_clue=final_state.get("detected_clue"),
             agent_stress=agent_state.get("stress_level", 0.0),
             interrogation_count=agent_state.get("interrogation_count", 0),
+            new_auto_notes=new_notes,
+            all_auto_notes=all_notes,
             audio_base64=final_state.get("audio_base64"),  # Added for voice integration
             voice_id=final_state.get("voice_id")  # Added for voice integration
         )

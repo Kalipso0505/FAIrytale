@@ -19,6 +19,14 @@ class AgentState(TypedDict):
     last_topics: list[str]  # What was discussed recently
 
 
+class AutoNote(TypedDict):
+    """An automatically generated note about a persona"""
+    text: str  # The note content
+    category: str  # "alibi", "motive", "relationship", "observation", "contradiction"
+    timestamp: str  # When this was noted (ISO format)
+    source_message: str  # Brief excerpt of the message that triggered this note
+
+
 class Message(TypedDict):
     """A single message in the conversation"""
     role: str  # "user" or "assistant"
@@ -83,10 +91,14 @@ class GameState(TypedDict):
     revealed_clues: list[str]  # Clues discovered during play
     game_status: str  # "active", "solved", "failed"
     
+    # === Auto-Generated Notes (grouped by persona) ===
+    auto_notes: dict[str, list[AutoNote]]  # persona_slug -> list of notes
+    
     # === Response (filled by responding agent) ===
     final_response: str
     responding_agent: str
     detected_clue: Optional[str]  # If this response reveals a clue
+    new_auto_notes: list[AutoNote]  # Notes generated from current response
     audio_base64: Optional[str]  # Generated audio for the response
     voice_id: Optional[str]  # Voice ID used for audio generation
 
@@ -129,6 +141,12 @@ def create_initial_game_state(
         for p in scenario["personas"]
     }
     
+    # Initialize empty auto_notes for each persona
+    auto_notes = {
+        p["slug"]: []
+        for p in scenario["personas"]
+    }
+    
     return GameState(
         game_id=game_id,
         scenario_name=scenario["name"],
@@ -144,9 +162,11 @@ def create_initial_game_state(
         agent_states=agent_states,
         revealed_clues=[],
         game_status="active",
+        auto_notes=auto_notes,
         final_response="",
         responding_agent="",
         detected_clue=None,
+        new_auto_notes=[],
         audio_base64=None,
         voice_id=None
     )

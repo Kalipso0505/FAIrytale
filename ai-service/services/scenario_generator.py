@@ -38,71 +38,85 @@ class ScenarioGenerator:
             api_key=os.getenv("OPENAI_API_KEY")
         )
         
-        # Try to load prompt from database
+        # Load prompt from database (single source of truth: PromptTemplateSeeder)
         prompt_service = get_prompt_service()
         self.prompt_template = prompt_service.get_prompt("scenario_generator_prompt")
         
         if self.prompt_template:
             logger.info("✅ Loaded scenario_generator_prompt from database")
         else:
-            # Fallback to local file
-            logger.warning("⚠️ Could not load prompt from database, trying local file...")
-            try:
-                prompt_path = os.path.join(
-                    os.path.dirname(__file__),
-                    "..",
-                    "SCENARIO_GENERATOR_PROMPT.md"
-                )
-                with open(prompt_path, "r", encoding="utf-8") as f:
-                    self.prompt_template = f.read()
-                logger.info("✅ Loaded scenario prompt from local file")
-            except FileNotFoundError:
-                logger.error("❌ No prompt available, using minimal fallback")
-                self.prompt_template = FALLBACK_SCENARIO_PROMPT
+            logger.warning("⚠️ Prompt not in database, using minimal fallback. Run: php artisan db:seed --class=PromptTemplateSeeder")
+            self.prompt_template = FALLBACK_SCENARIO_PROMPT
         
         logger.info(f"ScenarioGenerator initialized with model: {model_name}")
     
-    def generate(self, user_input: str = "", difficulty: str = "mittel") -> dict:
+    def generate(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 2) -> dict:
         """
         Generate a new murder mystery scenario.
         
         Args:
             user_input: User's scenario preferences (empty for random)
             difficulty: "einfach", "mittel", or "schwer"
+            max_retries: Number of retry attempts if validation fails
         
         Returns:
             Validated scenario dictionary
         """
-        logger.info(f"Generating scenario: difficulty={difficulty}, input='{user_input[:50]}'")
+        logger.info(f"Generating scenario: difficulty={difficulty}, input='{user_input[:50] if user_input else 'random'}'")
         
         # Build the prompt
         system_prompt = self.prompt_template
         
+        # Emphasize the 4 persona requirement
+        persona_reminder = "\n\n⚠️ WICHTIG: Du MUSST GENAU 4 oder mehr Verdächtige (personas) erstellen! Nicht weniger als 4!"
+        
         if user_input.strip():
-            user_prompt = f"The user wants the following scenario:\n\n{user_input}\n\nDifficulty: {difficulty}\n\nCreate the scenario in English!"
+            user_prompt = f"Der User möchte folgendes Szenario:\n\n{user_input}\n\nSchwierigkeit: {difficulty}{persona_reminder}\n\nErstelle das Szenario!"
         else:
-            user_prompt = f"Create a random, creative Murder Mystery scenario in English.\n\nDifficulty: {difficulty}\n\nSurprise me!"
+            user_prompt = f"Erstelle ein zufälliges, kreatives Murder Mystery Szenario.\n\nSchwierigkeit: {difficulty}{persona_reminder}\n\nÜberrasche mich!"
         
-        # Call GPT
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ]
+        last_error = None
         
-        logger.info("Calling GPT-4 for scenario generation...")
-        response = self.llm.invoke(messages)
+        for attempt in range(max_retries + 1):
+            try:
+                # Modify prompt on retry to be more explicit
+                if attempt > 0:
+                    logger.warning(f"Retry attempt {attempt}/{max_retries} - previous error: {last_error}")
+                    retry_prompt = user_prompt + f"\n\n🚨 VORHERIGER VERSUCH FEHLGESCHLAGEN: {last_error}\nBitte stelle sicher, dass du MINDESTENS 4 vollständige Personas erstellst!"
+                else:
+                    retry_prompt = user_prompt
+                
+                # Call GPT
+                messages = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=retry_prompt)
+                ]
+                
+                logger.info(f"Calling GPT-4 for scenario generation (attempt {attempt + 1})...")
+                response = self.llm.invoke(messages)
+                
+                raw_output = response.content
+                logger.info(f"Received response: {len(raw_output)} characters")
+                
+                # Parse the Python dictionary from the response
+                scenario_dict = self._parse_scenario(raw_output)
+                
+                # Validate the scenario
+                self._validate_scenario(scenario_dict)
+                
+                logger.info(f"✅ Scenario generated: {scenario_dict['name']}")
+                return scenario_dict
+                
+            except ValueError as e:
+                last_error = str(e)
+                logger.warning(f"Attempt {attempt + 1} failed: {last_error}")
+                
+                if attempt >= max_retries:
+                    logger.error(f"All {max_retries + 1} attempts failed")
+                    raise ValueError(f"Scenario generation failed after {max_retries + 1} attempts: {last_error}")
         
-        raw_output = response.content
-        logger.info(f"Received response: {len(raw_output)} characters")
-        
-        # Parse the Python dictionary from the response
-        scenario_dict = self._parse_scenario(raw_output)
-        
-        # Validate the scenario
-        self._validate_scenario(scenario_dict)
-        
-        logger.info(f"✅ Scenario generated: {scenario_dict['name']}")
-        return scenario_dict
+        # Should never reach here, but just in case
+        raise ValueError(f"Scenario generation failed: {last_error}")
     
     def _parse_scenario(self, raw_output: str) -> dict:
         """

@@ -9,13 +9,15 @@ Each persona (Elena, Tom, Lisa, Klaus) is a separate agent with:
 Prompts are loaded from the Laravel database via PromptService.
 """
 
+import json
 import logging
+from datetime import datetime
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from .state import GameState, Message
+from .state import GameState, Message, AutoNote
 from services.prompt_service import get_prompt_service
 from services.voice_service import VoiceService
 
@@ -144,6 +146,101 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         
         return None
     
+    async def _extract_auto_notes(self, user_question: str, response: str, state: GameState) -> list[AutoNote]:
+        """
+        Use LLM to extract relevant investigative notes from the conversation.
+        
+        The LLM analyzes the persona's response and extracts notes in these categories:
+        - alibi: Where they claim to have been at specific times
+        - motive: Potential motives or reasons for conflict
+        - relationship: Information about relationships with victim/others
+        - observation: What they saw, heard, or noticed
+        - contradiction: Statements that contradict earlier info
+        """
+        extraction_prompt = f"""Du bist ein Ermittler-Assistent. Analysiere die folgende Aussage von {self.name} ({self.role}) und extrahiere relevante Ermittlungsnotizen.
+
+FRAGE DES ERMITTLERS:
+{user_question}
+
+ANTWORT VON {self.name.upper()}:
+{response}
+
+BEKANNTE FAKTEN ZUM FALL:
+- Opfer: {state.get('victim', 'Unbekannt')}
+- Zeitlinie: {state.get('timeline', 'Keine Angaben')}
+
+AUFGABE:
+Extrahiere NUR relevante Notizen, die für die Ermittlung wichtig sein könnten. Ignoriere Small Talk und irrelevante Aussagen.
+
+Antworte AUSSCHLIESSLICH mit einem JSON-Array. Wenn keine relevanten Informationen vorhanden sind, antworte mit [].
+
+Jede Notiz muss folgendes Format haben:
+{{
+  "text": "Kurze, prägnante Notiz (max 100 Zeichen)",
+  "category": "alibi" | "motive" | "relationship" | "observation" | "contradiction"
+}}
+
+Kategorien:
+- alibi: Angaben zu Aufenthaltsort/Zeit
+- motive: Mögliche Motive, Konflikte, Geheimnisse
+- relationship: Beziehungen zum Opfer oder anderen Personen
+- observation: Was die Person gesehen/gehört hat
+- contradiction: Widersprüche zu bekannten Fakten
+
+WICHTIG: Extrahiere nur NEUE, relevante Informationen. Maximal 2-3 Notizen pro Antwort.
+
+JSON-Array:"""
+
+        try:
+            messages = [
+                SystemMessage(content="Du bist ein präziser Ermittler-Assistent. Antworte NUR mit validem JSON."),
+                HumanMessage(content=extraction_prompt)
+            ]
+            
+            extraction_response = await self.llm.ainvoke(messages)
+            content = extraction_response.content.strip()
+            
+            # Clean up the response to ensure valid JSON
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            
+            # Parse JSON
+            raw_notes = json.loads(content)
+            
+            if not isinstance(raw_notes, list):
+                return []
+            
+            # Convert to AutoNote format with timestamp
+            timestamp = datetime.now().isoformat()
+            notes = []
+            
+            for note in raw_notes[:3]:  # Max 3 notes per response
+                if isinstance(note, dict) and "text" in note and "category" in note:
+                    valid_categories = ["alibi", "motive", "relationship", "observation", "contradiction"]
+                    category = note["category"] if note["category"] in valid_categories else "observation"
+                    
+                    notes.append(AutoNote(
+                        text=note["text"][:150],  # Limit length
+                        category=category,
+                        timestamp=timestamp,
+                        source_message=response[:100] + "..." if len(response) > 100 else response
+                    ))
+            
+            logger.info(f"Extracted {len(notes)} auto-notes for {self.name}")
+            return notes
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse auto-notes JSON: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error extracting auto-notes: {e}")
+            return []
+    
     async def invoke(self, state: GameState) -> GameState:
         """
         Main agent invocation - called by LangGraph.
@@ -152,6 +249,7 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         2. Uses own private knowledge
         3. Generates response
         4. Updates state with response and dynamic changes
+        5. Extracts auto-notes from the response
         """
         logger.info(f"=== {self.name} AGENT INVOKED ===")
         logger.info(f"User message: {state['user_message']}")
@@ -188,8 +286,15 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
             except Exception as e:
                 logger.error(f"Failed to generate audio for {self.name}: {e}")
         
-        # Detect if we revealed a clue
+        # Detect if we revealed a clue (keyword-based, legacy)
         detected_clue = self._detect_revealed_clue(response_text)
+        
+        # Extract auto-notes from the response (LLM-based)
+        new_auto_notes = await self._extract_auto_notes(
+            user_question=state["user_message"],
+            response=response_text,
+            state=state
+        )
         
         # Update agent's dynamic state
         agent_state = state["agent_states"].get(self.slug, {})
@@ -201,10 +306,16 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         if detected_clue and detected_clue not in state.get("revealed_clues", []):
             state["revealed_clues"] = state.get("revealed_clues", []) + [detected_clue]
         
+        # Update auto_notes for this persona
+        if new_auto_notes:
+            current_notes = state.get("auto_notes", {}).get(self.slug, [])
+            state["auto_notes"][self.slug] = current_notes + new_auto_notes
+        
         # Set response in state
         state["final_response"] = response_text
         state["responding_agent"] = self.slug
         state["detected_clue"] = detected_clue
+        state["new_auto_notes"] = new_auto_notes  # Notes from this specific response
         state["audio_base64"] = audio_base64  # Added for voice integration
         state["voice_id"] = self.voice_id  # Added for voice integration
         

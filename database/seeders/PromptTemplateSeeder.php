@@ -156,7 +156,9 @@ Inkl. wichtige Details wie Zugangssystem, Überwachung, geschlossener Raum, etc.
 - [Zeitpunkt]: [Polizei/Ermittlungen]
     """.strip(),
     
+    # ⚠️ WICHTIG: Du MUSST GENAU 4 PERSONAS ERSTELLEN! Nicht 3, nicht 2 - GENAU 4 oder mehr!
     "personas": [
+        # PERSONA 1 von 4 (oder mehr)
         {
             "slug": "[lowercase-name ohne Umlaute]",
             "name": "[Voller Name]",
@@ -204,7 +206,9 @@ Format:
 WICHTIG: Nicht jeder muss gleich viel über andere wissen. Passe es der Geschichte an!]
             """.strip()
         },
-        # [WEITERE PERSONAS - mind. 4 insgesamt, einer ist der Mörder]
+        # PERSONA 2 von 4 - { ... vollständige Persona ... }
+        # PERSONA 3 von 4 - { ... vollständige Persona ... }
+        # PERSONA 4 von 4 - { ... vollständige Persona (einer davon ist der Mörder) ... }
     ],
     
     "intro_message": """
@@ -351,11 +355,14 @@ Gib das komplette Dictionary als Python-Code aus:
 ## Qualitätskontrolle
 
 Bevor du antwortest:
-1. ✅ Alle Zeitangaben konsistent?
-2. ✅ Mörder eindeutig identifizierbar durch Hinweise?
-3. ✅ Jede Persona hat eigene Stimme?
-4. ✅ Setting atmosphärisch beschrieben?
-5. ✅ Format exakt wie Vorlage?
+1. ✅ **HAST DU GENAU 4 ODER MEHR PERSONAS?** (PFLICHT! Weniger = ungültig!)
+2. ✅ Alle Zeitangaben konsistent?
+3. ✅ Mörder eindeutig identifizierbar durch Hinweise?
+4. ✅ Jede Persona hat eigene Stimme?
+5. ✅ Setting atmosphärisch beschrieben?
+6. ✅ Format exakt wie Vorlage?
+
+🚨 **KRITISCH**: Das Szenario wird ABGELEHNT wenn weniger als 4 Personas vorhanden sind!
 
 ---
 

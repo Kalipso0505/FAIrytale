@@ -5,7 +5,8 @@ Each persona (Elena, Tom, Lisa, Klaus) is a separate agent with:
 - Access to SHARED knowledge (from GameState)
 - Their own PRIVATE knowledge (from persona_data)
 - Their own dynamic state (stress, lies_told, etc.)
-- Voice generation capability via ElevenLabs
+
+Prompts are loaded from the Laravel database via PromptService.
 """
 
 import logging
@@ -15,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .state import GameState, Message
+from services.prompt_service import get_prompt_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +32,12 @@ class PersonaAgent:
     - llm: the language model to use
     """
     
-    def __init__(self, persona_data: dict, llm: ChatOpenAI, voice_id: Optional[str] = None, voice_service = None):
+    def __init__(self, persona_data: dict, llm: ChatOpenAI):
         self.slug = persona_data["slug"]
         self.name = persona_data["name"]
         self.role = persona_data["role"]
         self.persona_data = persona_data
         self.llm = llm
-        self.voice_id = voice_id
-        self.voice_service = voice_service
         
         # Private knowledge - ONLY this agent knows this
         self.private_knowledge = persona_data["private_knowledge"]
@@ -46,8 +46,6 @@ class PersonaAgent:
         
         # Clue detection keywords for this persona
         self.clue_keywords = self._setup_clue_keywords()
-        
-        logger.info(f"PersonaAgent {self.name} initialized with voice_id: {voice_id[:20] if voice_id else 'None'}...")
     
     def _setup_clue_keywords(self) -> list[str]:
         """Keywords that indicate this persona revealed important info"""
@@ -63,6 +61,7 @@ class PersonaAgent:
         """
         Build the system prompt for this persona.
         
+        Uses the prompt template from the database (via PromptService).
         Combines:
         - Shared knowledge (from state)
         - Private knowledge (from persona_data)
@@ -72,56 +71,46 @@ class PersonaAgent:
         stress = agent_state.get("stress_level", 0.0)
         interrogation_count = agent_state.get("interrogation_count", 0)
         
-        # Base prompt with role
-        prompt = f"""You are {self.name}, {self.role} at InnoTech GmbH.
-
-=== YOUR PERSONALITY ===
-{self.personality}
-
-=== YOUR PRIVATE KNOWLEDGE (only you know this, don't reveal it directly!) ===
-{self.private_knowledge}
-
-=== WHAT EVERYONE KNOWS (public facts) ===
-{state["shared_facts"]}
-
-=== CASE TIMELINE ===
-{state["timeline"]}
-
-=== WHAT YOU KNOW ABOUT OTHERS ===
-{self.knows_about_others}
-
-=== BEHAVIOR RULES ===
-1. ALWAYS stay in character as {self.name}
-2. Respond in English
-3. Keep answers short (2-4 sentences), like in a real conversation
-4. NEVER reveal your secrets directly, but:
-   - Show nervousness or discomfort on sensitive topics
-   - Become slightly more open when pressed repeatedly
-   - Make small "slips" that could give hints
-5. When asked about other people, use your knowledge about them
-6. You do NOT know who the murderer is (unless you are the murderer yourself)
-7. Only answer what is asked, don't proactively tell everything
-"""
-        
-        # Add stress-based behavior modifications
+        # Build stress modifier based on current state
+        stress_modifier = ""
         if stress > 0.3:
-            prompt += f"""
-=== CURRENT STATE ===
-Stress Level: {stress:.0%}
-You're becoming noticeably more nervous. Your answers get shorter, you hesitate more.
+            stress_modifier += f"""
+=== AKTUELLER ZUSTAND ===
+Stress-Level: {stress:.0%}
+Du wirst merklich nervöser. Deine Antworten werden kürzer, du zögerst mehr.
 """
         
         if stress > 0.6:
-            prompt += """You are very stressed. You make small mistakes in your statements.
-When directly confronted, you might slip up.
+            stress_modifier += """Du bist sehr gestresst. Du machst kleine Fehler in deinen Aussagen.
+Bei direkter Konfrontation könntest du dich verplappern.
 """
         
         if interrogation_count > 5:
-            prompt += f"""
-You've been questioned {interrogation_count} times already. You're getting tired and less careful.
+            stress_modifier += f"""
+Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsichtiger.
 """
         
-        return prompt
+        # Get formatted prompt from PromptService
+        prompt_service = get_prompt_service()
+        
+        # Extract company name from scenario_name or use default
+        company_name = state.get("scenario_name", "InnoTech GmbH")
+        if "InnoTech" not in company_name:
+            company_name = "der Firma"
+        else:
+            company_name = "InnoTech GmbH"
+        
+        return prompt_service.format_persona_prompt(
+            persona_name=self.name,
+            persona_role=self.role,
+            company_name=company_name,
+            personality=self.personality,
+            private_knowledge=self.private_knowledge,
+            shared_facts=state["shared_facts"],
+            timeline=state["timeline"],
+            knows_about_others=self.knows_about_others,
+            stress_modifier=stress_modifier
+        )
     
     def _get_persona_history(self, state: GameState) -> list:
         """
@@ -186,20 +175,6 @@ You've been questioned {interrogation_count} times already. You're getting tired
         # Detect if we revealed a clue
         detected_clue = self._detect_revealed_clue(response_text)
         
-        # Generate audio if voice service is available
-        audio_base64 = None
-        if self.voice_service and self.voice_id:
-            try:
-                logger.info(f"Generating audio for {self.name}'s response...")
-                audio_bytes = await self.voice_service.text_to_speech(response_text, self.voice_id)
-                if audio_bytes:
-                    audio_base64 = self.voice_service.audio_to_base64(audio_bytes)
-                    logger.info(f"Audio generated successfully ({len(audio_base64)} base64 chars)")
-                else:
-                    logger.warning("Audio generation returned None")
-            except Exception as e:
-                logger.error(f"Failed to generate audio for {self.name}: {e}", exc_info=True)
-        
         # Update agent's dynamic state
         agent_state = state["agent_states"].get(self.slug, {})
         agent_state["stress_level"] = min(1.0, agent_state.get("stress_level", 0) + 0.1)
@@ -214,8 +189,6 @@ You've been questioned {interrogation_count} times already. You're getting tired
         state["final_response"] = response_text
         state["responding_agent"] = self.slug
         state["detected_clue"] = detected_clue
-        state["audio_base64"] = audio_base64
-        state["voice_id"] = self.voice_id
         
         # Add to message history
         new_message = Message(

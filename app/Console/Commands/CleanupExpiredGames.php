@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Game;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class CleanupExpiredGames extends Command
 {
@@ -37,8 +38,12 @@ class CleanupExpiredGames extends Command
         }
 
         $count = $expiredGames->count();
+        $totalMessages = 0;
 
         foreach ($expiredGames as $game) {
+            $messageCount = $game->messages()->count();
+            $totalMessages += $messageCount;
+
             // Delete all chat messages
             $game->messages()->delete();
 
@@ -46,7 +51,12 @@ class CleanupExpiredGames extends Command
             $game->delete();
         }
 
-        $this->info("Deleted {$count} expired game(s).");
+        Log::channel('game')->info('Expired games cleaned up', [
+            'games_deleted' => $count,
+            'messages_deleted' => $totalMessages,
+        ]);
+
+        $this->info("Deleted {$count} expired game(s) with {$totalMessages} message(s).");
 
         return self::SUCCESS;
     }

@@ -24,15 +24,7 @@ services:
         environment:
             - OPENAI_API_KEY=${OPENAI_API_KEY}
             - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
-            - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-            - ELEVENLABS_VOICE_FEMALE_1=${ELEVENLABS_VOICE_FEMALE_1}
-            - ELEVENLABS_VOICE_FEMALE_2=${ELEVENLABS_VOICE_FEMALE_2}
-            - ELEVENLABS_VOICE_FEMALE_3=${ELEVENLABS_VOICE_FEMALE_3}
-            - ELEVENLABS_VOICE_FEMALE_4=${ELEVENLABS_VOICE_FEMALE_4}
-            - ELEVENLABS_VOICE_MALE_1=${ELEVENLABS_VOICE_MALE_1}
-            - ELEVENLABS_VOICE_MALE_2=${ELEVENLABS_VOICE_MALE_2}
-            - ELEVENLABS_VOICE_MALE_3=${ELEVENLABS_VOICE_MALE_3}
-            - ELEVENLABS_VOICE_MALE_4=${ELEVENLABS_VOICE_MALE_4}
+            - LARAVEL_API_URL=http://nginx:80
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
             interval: 30s

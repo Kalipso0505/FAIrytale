@@ -3,6 +3,8 @@ AI Service - Murder Mystery Game (Multi-Agent Version)
 
 FastAPI server with LangGraph multi-agent orchestration.
 Each persona is a separate agent with its own knowledge and state.
+
+Prompts and scenarios are loaded from the Laravel database via PromptService.
 """
 
 import os
@@ -21,6 +23,7 @@ from agents.state import Message
 from scenarios.office_murder import OFFICE_MURDER_SCENARIO
 from scenarios.default_scenario import DEFAULT_SCENARIO
 from services.scenario_generator import ScenarioGenerator
+from services.prompt_service import get_prompt_service
 
 # Setup logging
 logging.basicConfig(
@@ -42,12 +45,33 @@ murder_graphs: dict[str, any] = {}
 scenario_generator: Optional[ScenarioGenerator] = None
 
 
+def get_default_scenario() -> dict:
+    """
+    Get the default scenario from the database or fallback to hardcoded.
+    
+    This allows Content Managers to update the default scenario via the database.
+    """
+    prompt_service = get_prompt_service()
+    scenario = prompt_service.get_scenario("default_scenario")
+    
+    if scenario:
+        logger.info("✅ Loaded default scenario from database")
+        return scenario
+    
+    logger.warning("⚠️ Using hardcoded default scenario")
+    return OFFICE_MURDER_SCENARIO
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup"""
     global gamemasters, murder_graphs, scenario_generator
     
     logger.info("Initializing Murder Mystery Multi-Agent System...")
+    
+    # Pre-load prompts from database
+    prompt_service = get_prompt_service()
+    prompt_service.reload()
     
     # Initialize Scenario Generator
     scenario_generator = ScenarioGenerator(
@@ -101,8 +125,6 @@ class ChatResponse(BaseModel):
     revealed_clue: Optional[str] = None
     agent_stress: float = 0.0
     interrogation_count: int = 0
-    audio_base64: Optional[str] = None
-    voice_id: Optional[str] = None
 
 
 class GameStartRequest(BaseModel):
@@ -114,7 +136,7 @@ class VictimInfo(BaseModel):
     """Victim information"""
     name: str
     role: str
-    description: str
+    description: str = ""
 
 
 class GameStartResponse(BaseModel):
@@ -123,9 +145,9 @@ class GameStartResponse(BaseModel):
     scenario_name: str
     setting: str
     victim: VictimInfo
-    location: str
-    time_of_incident: str
-    timeline: str
+    location: str = "Unknown Location"
+    time_of_incident: str = "Time unknown"
+    timeline: str = ""
     personas: list[dict]
     intro_message: str
 
@@ -326,9 +348,7 @@ async def chat_with_persona(request: ChatRequest):
             persona_name=agent.name if agent else request.persona_slug,
             revealed_clue=final_state.get("detected_clue"),
             agent_stress=agent_state.get("stress_level", 0.0),
-            interrogation_count=agent_state.get("interrogation_count", 0),
-            audio_base64=final_state.get("audio_base64"),
-            voice_id=final_state.get("voice_id")
+            interrogation_count=agent_state.get("interrogation_count", 0)
         )
         
     except Exception as e:
@@ -437,6 +457,65 @@ async def get_agents_info(game_id: str):
         "graph_nodes": ["router"] + list(gamemaster.persona_agents.keys()),
         "multi_agent_enabled": True
     }
+
+
+# === Admin/Management Endpoints ===
+
+@app.post("/admin/prompts/reload")
+async def reload_prompts():
+    """
+    Reload all prompts from the Laravel database.
+    
+    Call this after updating prompts in the database to apply changes
+    without restarting the AI service.
+    """
+    prompt_service = get_prompt_service()
+    prompt_service.reload()
+    
+    return {
+        "status": "success",
+        "message": "Prompts reloaded from database"
+    }
+
+
+@app.post("/scenario/default", response_model=ScenarioGenerateResponse)
+async def use_default_scenario(request: GameStartRequest):
+    """
+    Initialize a game with the default scenario from the database.
+    
+    This is faster than generating a new scenario and useful for testing
+    or when users want the standard InnoTech case.
+    """
+    logger.info(f"Using default scenario for game {request.game_id}")
+    
+    try:
+        # Get default scenario from database or fallback
+        scenario = get_default_scenario()
+        
+        # Create GameMaster for this game
+        gamemaster = GameMasterAgent(
+            scenario=scenario,
+            model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        )
+        
+        # Create the graph
+        graph = create_murder_mystery_graph(gamemaster)
+        
+        # Store them
+        gamemasters[request.game_id] = gamemaster
+        murder_graphs[request.game_id] = graph
+        
+        logger.info(f"✅ Game {request.game_id} initialized with default scenario: {scenario['name']}")
+        
+        return ScenarioGenerateResponse(
+            success=True,
+            game_id=request.game_id,
+            scenario_name=scenario["name"]
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to use default scenario: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load default scenario: {str(e)}")
 
 
 if __name__ == "__main__":

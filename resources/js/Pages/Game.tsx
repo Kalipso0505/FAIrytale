@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Head } from '@inertiajs/react';
-import { useGameState } from '@/hooks/use-game-state';
+import { useGameState, useGenerationProgress } from '@/hooks';
+import { generateGameId } from '@/lib/api';
 import {
     StartScreenV3,
     IntroScreenV3,
@@ -53,6 +54,53 @@ export default function GameNew({ initialGame }: GamePageProps) {
         }
     }, [game.status, game.gameId]);
     const [showAccuseModal, setShowAccuseModal] = useState(false);
+    
+    // Pre-generate game ID for WebSocket progress tracking
+    // Keep this stable during the entire generation process
+    const [pendingGameId, setPendingGameId] = useState<string | null>(null);
+    const progress = useGenerationProgress(pendingGameId);
+    
+    // Use refs to avoid dependency issues
+    const progressRef = useRef(progress);
+    progressRef.current = progress;
+    const isGeneratingRef = useRef(false);
+    
+    // Wrapper for generateAndStart that sets up WebSocket first
+    const handleGenerateAndStart = useCallback(async () => {
+        // Generate a game ID before starting so we can subscribe to progress
+        const newGameId = generateGameId();
+        console.log('Starting generation with ID:', newGameId);
+        
+        isGeneratingRef.current = true;
+        setPendingGameId(newGameId);
+        progressRef.current.startTracking();
+        
+        try {
+            await game.generateAndStartWithId(newGameId);
+            console.log('Generation completed successfully');
+        } catch (error) {
+            console.error('Generation failed:', error);
+        } finally {
+            isGeneratingRef.current = false;
+            // Don't reset immediately - let the user see the final progress
+            // The progress will reset when game is reset
+        }
+    }, [game]);
+    
+    // Reset progress only when game is fully reset (not during generation)
+    useEffect(() => {
+        // Only cleanup when going back to start and not actively generating
+        if (game.status === 'not-started' && pendingGameId && !isGeneratingRef.current && !game.isGenerating) {
+            console.log('Cleaning up progress state (game reset)');
+            setPendingGameId(null);
+            progressRef.current.resetProgress();
+        }
+    }, [game.status, game.isGenerating, pendingGameId]);
+    
+    // Wrapper for quickStart
+    const handleQuickStart = useCallback(async () => {
+        await game.quickStart();
+    }, [game]);
 
     // Prepare case info object
     const caseInfo = {
@@ -83,9 +131,10 @@ export default function GameNew({ initialGame }: GamePageProps) {
                     onScenarioInputChange={game.setScenarioInput}
                     difficulty={game.difficulty}
                     onDifficultyChange={game.setDifficulty}
-                    onGenerate={game.generateAndStart}
-                    onQuickStart={game.quickStart}
+                    onGenerate={handleGenerateAndStart}
+                    onQuickStart={handleQuickStart}
                     isGenerating={game.isGenerating}
+                    generationProgress={progress.isActive ? progress : undefined}
                 />
             )}
 

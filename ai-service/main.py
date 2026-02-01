@@ -8,6 +8,7 @@ Prompts and scenarios are loaded from the Laravel database via PromptService.
 """
 
 import os
+import asyncio
 import logging
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -25,6 +26,7 @@ from scenarios.default_scenario import DEFAULT_SCENARIO
 from services.scenario_generator import ScenarioGenerator
 from services.prompt_service import get_prompt_service
 from services.image_generator import get_image_generator
+from services import progress_service
 
 # Setup logging
 logging.basicConfig(
@@ -278,36 +280,69 @@ async def generate_scenario(request: ScenarioGenerateRequest):
     logger.info("=" * 70)
     
     try:
-        # Generate the scenario using async parallel generation
-        gen_start = time.time()
-        scenario = await scenario_generator.generate_async(
+        # === PHASE 1: Generate base scenario ===
+        phase1_start = time.time()
+        base_scenario = await scenario_generator.generate_base_only(
             user_input=request.user_input,
-            difficulty=request.difficulty
+            difficulty=request.difficulty,
+            game_id=request.game_id
         )
-        gen_time = time.time() - gen_start
+        phase1_time = time.time() - phase1_start
         
-        # Create GameMaster for this game
+        logger.info(f"   Phase 1 complete: {base_scenario.name} ({phase1_time:.2f}s)")
+        
+        # === PHASE 2 + IMAGES IN PARALLEL ===
+        # Images only need the base scenario, so start them alongside persona generation!
+        parallel_start = time.time()
+        
+        # Broadcast: Starting parallel work (personas + images)
+        await progress_service.generating_images(request.game_id)
+        
+        async def generate_personas():
+            """Phase 2: Generate detailed personas"""
+            return await scenario_generator.generate_personas_from_base(
+                base_scenario=base_scenario,
+                difficulty=request.difficulty,
+                game_id=request.game_id
+            )
+        
+        async def generate_images():
+            """Generate crime scene images (uses base scenario only)"""
+            image_gen = get_image_generator()
+            # Convert BaseScenarioModel to dict for image generator
+            scenario_for_images = {
+                "name": base_scenario.name,
+                "setting": base_scenario.setting,
+                "victim": base_scenario.victim.model_dump(),
+                "solution": base_scenario.solution.model_dump(),
+            }
+            return await image_gen.generate_crime_scene_images(scenario_for_images)
+        
+        # Run BOTH in parallel - this is the key optimization!
+        scenario, crime_scene_images = await asyncio.gather(
+            generate_personas(),
+            generate_images()
+        )
+        
+        parallel_time = time.time() - parallel_start
+        
+        # === FINALIZE: GameMaster + Graph (fast, sync) ===
+        await progress_service.initializing_game(request.game_id)
+        
         gm_start = time.time()
         gamemaster = GameMasterAgent(
             scenario=scenario,
             model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         )
-        gm_time = time.time() - gm_start
-        
-        # Create the graph
-        graph_start = time.time()
         graph = create_murder_mystery_graph(gamemaster)
-        graph_time = time.time() - graph_start
+        gm_time = time.time() - gm_start
         
         # Store them
         gamemasters[request.game_id] = gamemaster
         murder_graphs[request.game_id] = graph
         
-        # Generate crime scene images
-        img_start = time.time()
-        image_generator = get_image_generator()
-        crime_scene_images = await image_generator.generate_crime_scene_images(scenario)
-        img_time = time.time() - img_start
+        # Broadcast: Complete
+        await progress_service.complete(request.game_id)
         
         total_time = time.time() - request_start
         
@@ -319,10 +354,9 @@ async def generate_scenario(request: ScenarioGenerateRequest):
         logger.info(f"   Murderer:       {scenario['solution']['murderer']}")
         logger.info(f"   Images:         {len(crime_scene_images)}")
         logger.info("-" * 70)
-        logger.info(f"   ⏱️  Generation:   {gen_time:.2f}s")
+        logger.info(f"   ⏱️  Phase 1:      {phase1_time:.2f}s (base scenario)")
+        logger.info(f"   ⏱️  Parallel:     {parallel_time:.2f}s (Phase2 + Images)")
         logger.info(f"   ⏱️  GameMaster:   {gm_time:.2f}s")
-        logger.info(f"   ⏱️  Graph:        {graph_time:.2f}s")
-        logger.info(f"   ⏱️  Images:       {img_time:.2f}s")
         logger.info(f"   ⏱️  TOTAL:        {total_time:.2f}s")
         logger.info("=" * 70)
         
@@ -352,6 +386,10 @@ async def generate_scenario(request: ScenarioGenerateRequest):
         logger.error(f"❌ POST /scenario/generate FAILED after {total_time:.2f}s")
         logger.error(f"   Error: {e}")
         logger.error("=" * 70, exc_info=True)
+        
+        # Broadcast: Error
+        await progress_service.error(request.game_id, str(e)[:100])
+        
         raise HTTPException(status_code=500, detail=f"Scenario generation failed: {str(e)}")
 
 

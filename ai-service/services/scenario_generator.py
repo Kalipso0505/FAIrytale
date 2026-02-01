@@ -20,10 +20,11 @@ from typing import Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .prompt_service import get_prompt_service
 from . import laravel_logger
+from . import progress_service
 
 logger = logging.getLogger(__name__)
 
@@ -170,21 +171,61 @@ class BaseScenarioModel(BaseModel):
     setting: str = Field(description="2-3 paragraphs: Where? When? What happened? How was the body found?")
     victim: VictimModel
     solution: SolutionModel
-    shared_knowledge: str = Field(description="Bullet points of facts everyone knows")
-    timeline: str = Field(description="Timeline of events with times")
+    shared_knowledge: str = Field(
+        default="",
+        description="Bullet points of facts everyone knows"
+    )
+    timeline: str = Field(
+        default="",
+        description="Timeline of events with times"
+    )
     persona_blueprints: list[PersonaBlueprintModel] = Field(description="4+ suspect blueprints", min_length=4)
-    intro_message: str = Field(description="Welcome message introducing the case to the player")
+    intro_message: str = Field(
+        default="Willkommen zum Fall. Befrage die Verdächtigen und finde den Mörder!",
+        description="Welcome message introducing the case to the player"
+    )
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'BaseScenarioModel':
+        """Fill in reasonable defaults for missing fields based on scenario data."""
+        if not self.shared_knowledge:
+            # Generate shared_knowledge from setting and victim
+            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
+- Alle Verdächtigen waren zur Tatzeit anwesend
+- Die Polizei hat den Tatort untersucht"""
+        
+        if not self.timeline:
+            # Generate basic timeline
+            self.timeline = """- Tatzeit: Unbekannt
+- Leiche gefunden: Kurz danach
+- Ermittlungen beginnen: Jetzt"""
+        
+        if not self.intro_message or self.intro_message == "":
+            self.intro_message = f"Willkommen zum Fall '{self.name}'. {self.victim.name} wurde ermordet. Befrage die Verdächtigen und finde den Mörder!"
+        
+        return self
 
 
 class PersonaModel(BaseModel):
     """Full persona details (Phase 2 - generated in parallel)"""
     slug: str = Field(description="Unique ID: lowercase, no umlauts (e.g., 'elena', 'tom')")
     name: str = Field(description="Full name")
-    role: str = Field(description="Job title or relationship to victim")
-    public_description: str = Field(description="What everyone knows about this person (1 sentence)")
-    personality: str = Field(description="How they speak, behave, react to pressure (2-3 sentences)")
-    private_knowledge: str = Field(description="Their secrets, alibi, observations, motives. For the murderer: include 'DU BIST DER MÖRDER' and full confession details")
-    knows_about_others: str = Field(description="What they know about other suspects (format: '- Name: knowledge')")
+    role: str = Field(default="Verdächtiger", description="Job title or relationship to victim")
+    public_description: str = Field(default="", description="What everyone knows about this person (1 sentence)")
+    personality: str = Field(default="Zurückhaltend und beobachtend.", description="How they speak, behave, react to pressure (2-3 sentences)")
+    private_knowledge: str = Field(default="", description="Their secrets, alibi, observations, motives. For the murderer: include 'DU BIST DER MÖRDER' and full confession details")
+    knows_about_others: str = Field(default="", description="What they know about other suspects (format: '- Name: knowledge')")
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'PersonaModel':
+        """Fill in reasonable defaults for missing fields."""
+        if not self.public_description:
+            self.public_description = f"{self.name} ist {self.role}."
+        
+        if not self.private_knowledge:
+            self.private_knowledge = "Hat zur Tatzeit kein wasserdichtes Alibi."
+        
+        return self
 
 
 class ScenarioModel(BaseModel):
@@ -193,10 +234,25 @@ class ScenarioModel(BaseModel):
     setting: str = Field(description="2-3 paragraphs: Where? When? What happened? How was the body found?")
     victim: VictimModel
     solution: SolutionModel
-    shared_knowledge: str = Field(description="Bullet points of facts everyone knows")
-    timeline: str = Field(description="Timeline of events with times")
+    shared_knowledge: str = Field(default="", description="Bullet points of facts everyone knows")
+    timeline: str = Field(default="", description="Timeline of events with times")
     personas: list[PersonaModel] = Field(description="4+ suspects (one is the murderer)", min_length=4)
-    intro_message: str = Field(description="Welcome message introducing the case to the player")
+    intro_message: str = Field(default="", description="Welcome message introducing the case to the player")
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'ScenarioModel':
+        """Fill in reasonable defaults for missing fields."""
+        if not self.shared_knowledge:
+            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
+- Alle Verdächtigen waren zur Tatzeit anwesend"""
+        
+        if not self.timeline:
+            self.timeline = "- Tatzeit: Unbekannt\n- Ermittlungen beginnen: Jetzt"
+        
+        if not self.intro_message:
+            self.intro_message = f"Willkommen zum Fall '{self.name}'. Befrage die Verdächtigen und finde den Mörder!"
+        
+        return self
 
 
 # === Prompts ===
@@ -286,23 +342,31 @@ class ScenarioGenerator:
         self.model_name = model_name
         self.api_key = os.getenv("OPENAI_API_KEY")
         
-        # LLM for base scenario (with BaseScenarioModel)
+        # Use faster model for Phase 1 (base scenario structure)
+        # gpt-4o is faster than gpt-4o-mini AND has better structured output support
+        # gpt-3.5-turbo doesn't reliably support structured output
+        phase1_model = os.getenv("OPENAI_MODEL_PHASE1", "gpt-4o")
+        
+        # Use better model for Phase 2 (persona details need quality)
+        phase2_model = os.getenv("OPENAI_MODEL_PHASE2", model_name)
+        
+        # LLM for base scenario (with BaseScenarioModel) - FAST
         base_llm = ChatOpenAI(
-            model=model_name,
+            model=phase1_model,
             temperature=0.9,
             api_key=self.api_key
         )
         self.base_llm = base_llm.with_structured_output(BaseScenarioModel)
         
-        # LLM for persona generation (with PersonaModel)
+        # LLM for persona generation (with PersonaModel) - QUALITY
         persona_llm = ChatOpenAI(
-            model=model_name,
+            model=phase2_model,
             temperature=0.8,  # Slightly lower for consistency
             api_key=self.api_key
         )
         self.persona_llm = persona_llm.with_structured_output(PersonaModel)
         
-        logger.info(f"ScenarioGenerator initialized with model: {model_name} (Parallel Generation enabled)")
+        logger.info(f"ScenarioGenerator initialized: Phase1={phase1_model}, Phase2={phase2_model} (Parallel)")
     
     def generate(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 2) -> dict:
         """
@@ -323,7 +387,82 @@ class ScenarioGenerator:
             # No running loop - safe to use asyncio.run
             return asyncio.run(self.generate_async(user_input, difficulty, max_retries))
     
-    async def generate_async(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 2) -> dict:
+    async def generate_base_only(
+        self,
+        user_input: str = "",
+        difficulty: str = "mittel",
+        game_id: str = ""
+    ) -> BaseScenarioModel:
+        """
+        Generate ONLY Phase 1 (base scenario with blueprints).
+        
+        Use this when you want to start image generation in parallel with Phase 2.
+        Call generate_personas_from_base() to complete the scenario.
+        """
+        if game_id:
+            await progress_service.started(game_id)
+            await progress_service.generating_scenario(game_id)
+        
+        base_scenario = await self._generate_base_scenario(user_input, difficulty)
+        
+        if game_id:
+            await progress_service.scenario_complete(game_id)
+        
+        return base_scenario
+    
+    async def generate_personas_from_base(
+        self,
+        base_scenario: BaseScenarioModel,
+        difficulty: str = "mittel",
+        game_id: str = ""
+    ) -> dict:
+        """
+        Generate Phase 2 (personas) from an existing base scenario.
+        
+        Returns the complete scenario dict.
+        """
+        metrics = GenerationMetrics()
+        metrics.start_phase2()
+        
+        num_personas = len(base_scenario.persona_blueprints)
+        if game_id:
+            await progress_service.generating_personas(game_id, num_personas)
+        
+        personas = await self._generate_personas_parallel(base_scenario, difficulty, metrics, game_id)
+        metrics.end_phase2()
+        
+        # Assemble final scenario
+        scenario_dict = {
+            "name": base_scenario.name,
+            "setting": base_scenario.setting,
+            "victim": base_scenario.victim.model_dump(),
+            "solution": base_scenario.solution.model_dump(),
+            "shared_knowledge": base_scenario.shared_knowledge,
+            "timeline": base_scenario.timeline,
+            "personas": [p.model_dump() for p in personas],
+            "intro_message": base_scenario.intro_message
+        }
+        
+        self._validate_scenario(scenario_dict)
+        metrics.finish()
+        
+        scenario_dict["_metrics"] = {
+            "total_sec": round(metrics.total_duration, 2),
+            "phase1_sec": 0,  # Not tracked here
+            "phase2_sec": round(metrics.phase2_duration, 2),
+            "retries": 0,
+            "persona_times": {k: round(v, 2) for k, v in metrics.persona_times.items()}
+        }
+        
+        return scenario_dict
+
+    async def generate_async(
+        self, 
+        user_input: str = "", 
+        difficulty: str = "mittel", 
+        max_retries: int = 2,
+        game_id: str = ""
+    ) -> dict:
         """
         Generate a new murder mystery scenario using parallel persona generation.
         
@@ -331,6 +470,12 @@ class ScenarioGenerator:
         Phase 2: Generate all 4 personas in parallel (~5-10 sec instead of ~20-40 sec)
         
         Total: ~10-20 sec instead of ~30-60 sec
+        
+        Args:
+            user_input: Optional user input for scenario theme
+            difficulty: einfach, mittel, or schwer
+            max_retries: Number of retries on failure
+            game_id: Game ID for progress broadcasting
         """
         metrics = GenerationMetrics()
         
@@ -339,8 +484,13 @@ class ScenarioGenerator:
         logger.info("=" * 60)
         logger.info(f"  Model:      {self.model_name}")
         logger.info(f"  Difficulty: {difficulty}")
+        logger.info(f"  Game ID:    {game_id[:8]}..." if game_id else "  Game ID:    (none)")
         logger.info(f"  User Input: {user_input[:50] + '...' if len(user_input) > 50 else user_input or '(random)'}")
         logger.info("-" * 60)
+        
+        # Broadcast: Started
+        if game_id:
+            await progress_service.started(game_id)
         
         last_error = None
         
@@ -353,14 +503,25 @@ class ScenarioGenerator:
                 # === PHASE 1: Generate base scenario ===
                 metrics.start_phase1()
                 logger.info("📋 PHASE 1: Generating base scenario with blueprints...")
+                
+                # Broadcast: Generating scenario
+                if game_id:
+                    await progress_service.generating_scenario(game_id)
+                
                 try:
                     base_scenario = await self._generate_base_scenario(user_input, difficulty)
                     metrics.end_phase1(success=True)
                 except Exception as e:
                     metrics.end_phase1(success=False)
+                    if game_id:
+                        await progress_service.error(game_id, str(e)[:100])
                     raise e
                 
                 logger.info(f"✅ Phase 1 complete in {metrics.phase1_success_duration:.2f}s")
+                
+                # Broadcast: Scenario complete
+                if game_id:
+                    await progress_service.scenario_complete(game_id)
                 logger.info(f"   Case: {base_scenario.name}")
                 logger.info(f"   Victim: {base_scenario.victim.name} ({base_scenario.victim.role})")
                 logger.info(f"   Murderer: {base_scenario.solution.murderer}")
@@ -371,8 +532,14 @@ class ScenarioGenerator:
                 
                 # === PHASE 2: Generate all personas in parallel ===
                 metrics.start_phase2()
-                logger.info(f"👥 PHASE 2: Generating {len(base_scenario.persona_blueprints)} personas in PARALLEL...")
-                personas = await self._generate_personas_parallel(base_scenario, difficulty, metrics)
+                num_personas = len(base_scenario.persona_blueprints)
+                logger.info(f"👥 PHASE 2: Generating {num_personas} personas in PARALLEL...")
+                
+                # Broadcast: Generating personas
+                if game_id:
+                    await progress_service.generating_personas(game_id, num_personas)
+                
+                personas = await self._generate_personas_parallel(base_scenario, difficulty, metrics, game_id)
                 metrics.end_phase2()
                 
                 logger.info(f"✅ Phase 2 complete in {metrics.phase2_duration:.2f}s")
@@ -461,7 +628,8 @@ Sprache: Deutsch
         self, 
         base_scenario: BaseScenarioModel, 
         difficulty: str,
-        metrics: GenerationMetrics
+        metrics: GenerationMetrics,
+        game_id: str = ""
     ) -> list[PersonaModel]:
         """Phase 2: Generate all personas in parallel."""
         
@@ -479,15 +647,20 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
             for bp in base_scenario.persona_blueprints
         ])
         
+        total_personas = len(base_scenario.persona_blueprints)
+        
         # Create tasks for parallel generation
         tasks = []
-        for blueprint in base_scenario.persona_blueprints:
+        for idx, blueprint in enumerate(base_scenario.persona_blueprints):
             task = self._generate_single_persona(
                 blueprint=blueprint,
                 scenario_context=scenario_context,
                 other_personas=other_personas_list,
                 difficulty=difficulty,
-                metrics=metrics
+                metrics=metrics,
+                game_id=game_id,
+                persona_index=idx,
+                total_personas=total_personas
             )
             tasks.append(task)
         
@@ -503,7 +676,10 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
         scenario_context: str,
         other_personas: str,
         difficulty: str,
-        metrics: GenerationMetrics
+        metrics: GenerationMetrics,
+        game_id: str = "",
+        persona_index: int = 0,
+        total_personas: int = 4
     ) -> PersonaModel:
         """Generate a single persona based on blueprint."""
         
@@ -545,6 +721,11 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
         metrics.record_persona(blueprint.slug, duration)
         
         logger.info(f"     ✓ Complete: {blueprint.slug} in {duration:.2f}s")
+        
+        # Broadcast: Persona complete
+        if game_id:
+            await progress_service.persona_complete(game_id, blueprint.name, persona_index, total_personas)
+        
         return persona
     
     def _validate_scenario(self, scenario: dict) -> None:

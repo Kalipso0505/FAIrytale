@@ -10,6 +10,8 @@ import { Textarea } from '@/Components/ui/textarea';
 import { Badge } from '@/Components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Difficulty } from '@/types/game';
+import type { GenerationProgress } from '@/hooks/use-generation-progress';
+import { GenerationProgressDisplay } from './generation-progress';
 
 interface StartScreenProps {
     scenarioInput: string;
@@ -19,6 +21,7 @@ interface StartScreenProps {
     onGenerate: () => void;
     onQuickStart: () => void;
     isGenerating: boolean;
+    generationProgress?: GenerationProgress;
 }
 
 const difficulties: { value: Difficulty; label: string; description: string }[] = [
@@ -42,9 +45,13 @@ export function StartScreenV3({
     onGenerate,
     onQuickStart,
     isGenerating,
+    generationProgress,
 }: StartScreenProps) {
     const [showExamples, setShowExamples] = useState(false);
     const canGenerate = scenarioInput.trim().length > 0 && !isGenerating;
+    
+    // Show progress display when generating and progress is available
+    const showProgress = isGenerating && generationProgress?.isActive;
 
     return (
         <div className="h-screen bg-zinc-950 text-white overflow-hidden">
@@ -55,6 +62,12 @@ export function StartScreenV3({
                     <div className="absolute top-0 left-0 w-96 h-96 bg-red-900/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
                     <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-red-800/15 rounded-full blur-3xl translate-y-1/2" />
                     
+                    {/* Show progress when generating */}
+                    {showProgress && generationProgress ? (
+                        <div className="relative">
+                            <GenerationProgressDisplay progress={generationProgress} />
+                        </div>
+                    ) : (
                     <div className="relative space-y-5 max-w-lg">
                         {/* Title */}
                         <div className="space-y-3">
@@ -181,6 +194,7 @@ A candlelit dinner party in a crumbling castle. Thunder rumbles outside as the h
                         </div>
 
                     </div>
+                    )}
                 </div>
 
                 {/* Hero Image Section - Right */}

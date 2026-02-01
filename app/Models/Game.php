@@ -14,6 +14,7 @@ class Game extends Model
     use HasUuids;
 
     protected $fillable = [
+        'id', // Allow client-provided UUIDs for WebSocket progress tracking
         'user_id',
         'scenario_slug',
         'status',

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\InternalLogController;
+use App\Http\Controllers\Api\InternalProgressController;
 use App\Http\Controllers\Api\PromptTemplateController;
 use App\Http\Controllers\DebugController;
 use App\Http\Controllers\GameController;
@@ -40,5 +41,6 @@ Route::prefix('api/prompts')->name('api.prompts.')->group(function () {
     Route::get('/{key}', [PromptTemplateController::class, 'show'])->name('show');
 });
 
-// Internal API for AI service logs (fire-and-forget)
+// Internal API for AI service (fire-and-forget, no auth)
 Route::post('/api/internal/log', [InternalLogController::class, 'store'])->name('api.internal.log');
+Route::post('/api/internal/progress', [InternalProgressController::class, 'broadcast'])->name('api.internal.progress');

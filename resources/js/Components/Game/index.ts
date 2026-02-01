@@ -9,6 +9,7 @@ export { GameHeaderDark } from "./game-header-dark";
 // Screens
 export { StartScreenV3 } from "./start-screen-v3";
 export { IntroScreenV3 } from "./intro-screen-v3";
+export { GenerationProgressDisplay } from "./generation-progress";
 
 // Modals
 export { AccuseModal } from "./accuse-modal";

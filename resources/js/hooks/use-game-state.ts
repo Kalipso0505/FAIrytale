@@ -124,6 +124,38 @@ export function useGameState(initialData?: InitialGameData | null) {
         }
     }, [scenarioInput, difficulty]);
 
+    // Generate and start game with pre-generated ID (for WebSocket progress tracking)
+    const generateAndStartWithId = useCallback(async (gameId: string) => {
+        setIsGenerating(true);
+        try {
+            const data = await api.generateAndStartGame(scenarioInput, difficulty, gameId);
+            
+            setGameState({
+                gameId: data.game_id,
+                status: 'intro',
+                scenarioName: data.scenario_name,
+                setting: data.setting,
+                victim: data.victim,
+                location: data.location,
+                timeOfIncident: data.time_of_incident,
+                timeline: data.timeline,
+                personas: data.personas,
+                introMessage: data.intro_message,
+                revealedClues: [],
+                messages: {},
+                crimeSceneImages: data.crime_scene_images || [],
+            });
+            setReadCounts({});
+            setSelectedPersona(null);
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Szenario-Generierung fehlgeschlagen';
+            console.error('Failed to generate scenario:', error);
+            throw new Error(errorMessage);
+        } finally {
+            setIsGenerating(false);
+        }
+    }, [scenarioInput, difficulty]);
+
     // Quick start with default scenario
     const quickStart = useCallback(async () => {
         setIsGenerating(true);
@@ -362,6 +394,7 @@ export function useGameState(initialData?: InitialGameData | null) {
         setScenarioInput,
         setDifficulty,
         generateAndStart,
+        generateAndStartWithId,
         quickStart,
         beginInvestigation,
         selectPersona,

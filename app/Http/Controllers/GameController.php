@@ -92,16 +92,24 @@ class GameController extends Controller
         $validated = $request->validate([
             'user_input' => 'nullable|string|max:500',
             'difficulty' => 'required|in:einfach,mittel,schwer',
+            'game_id' => 'nullable|uuid', // Optional: client can provide ID for WebSocket progress
         ]);
 
-        // Create game entry first
-        $game = Game::create([
+        // Create game entry first (use client-provided ID for WebSocket subscription)
+        $gameData = [
             'user_id' => $request->user()?->id,
             'scenario_slug' => 'generated_'.Str::random(8),
             'status' => 'active',
             'revealed_clues' => [],
             'expires_at' => now()->addMinutes(60),
-        ]);
+        ];
+
+        // If client provided a game_id, use it (for WebSocket progress tracking)
+        if (! empty($validated['game_id'])) {
+            $gameData['id'] = $validated['game_id'];
+        }
+
+        $game = Game::create($gameData);
 
         $this->log('info', 'Game created', [
             'game_id' => $game->id,
@@ -140,7 +148,7 @@ class GameController extends Controller
                     'phase2_sec' => $metrics['phase2_sec'] ?? null,
                     'retries' => $metrics['retries'] ?? 0,
                 ];
-                
+
                 // Log warning if there were retries
                 if (($metrics['retries'] ?? 0) > 0) {
                     $this->log('warning', 'Scenario generation required retries', [
@@ -357,7 +365,7 @@ class GameController extends Controller
             // Update auto_notes (grouped by persona)
             $newAutoNotes = $response['new_auto_notes'] ?? [];
             $allAutoNotes = $response['all_auto_notes'] ?? [];
-            
+
             // DEBUG: Log the auto notes from AI service response
             $this->log('debug', 'Auto notes from AI service', [
                 'game_id' => $game->id,

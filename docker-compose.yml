@@ -18,6 +18,27 @@ services:
             - WWWGROUP=${WWWGROUP:-1000}
         depends_on:
             - ai-service
+            - redis
+
+    ####################################################################################################
+    # Reverb WebSocket Server
+    ####################################################################################################
+    reverb:
+        build:
+            context: .docker/php
+            args:
+                WWWUSER: ${WWWUSER:-1000}
+                WWWGROUP: ${WWWGROUP:-1000}
+        ports:
+            - 8080:8080
+        volumes:
+            - .:/var/www:cached
+        environment:
+            - WWWUSER=${WWWUSER:-1000}
+            - WWWGROUP=${WWWGROUP:-1000}
+        command: php artisan reverb:start --host=0.0.0.0 --port=8080
+        depends_on:
+            - redis
 
     ####################################################################################################
     # AI Service (Python/LangGraph)

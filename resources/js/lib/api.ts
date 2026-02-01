@@ -39,13 +39,26 @@ api.interceptors.request.use((config) => {
 
 export async function generateAndStartGame(
     userInput: string, 
-    difficulty: Difficulty
+    difficulty: Difficulty,
+    gameId?: string
 ): Promise<GameStartResponse> {
     const response = await api.post<GameStartResponse>('/game/generate-and-start', {
         user_input: userInput,
         difficulty,
+        game_id: gameId, // Optional: if provided, use this ID for WebSocket progress
     });
     return response.data;
+}
+
+/**
+ * Generate a UUID v4 for client-side game ID generation
+ */
+export function generateGameId(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
 }
 
 export async function quickStartGame(): Promise<GameStartResponse> {

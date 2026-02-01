@@ -54,13 +54,18 @@ class GameMasterAgent:
         )
         logger.info(f"Voice assignments: {self.voice_assignments}")
         
+        # Get clue keywords from scenario solution (if available)
+        solution_clue_keywords = scenario.get("solution", {}).get("clue_keywords", {})
+        
         # Initialize persona agents - each is a SEPARATE agent instance
         self.persona_agents: dict[str, PersonaAgent] = {}
         for persona_data in scenario["personas"]:
             voice_id = self.voice_assignments.get(persona_data["slug"])
-            agent = PersonaAgent(persona_data, self.llm, voice_id, self.voice_service)
+            # Get persona-specific clue keywords from scenario
+            persona_clue_keywords = solution_clue_keywords.get(persona_data["slug"], None)
+            agent = PersonaAgent(persona_data, self.llm, voice_id, self.voice_service, persona_clue_keywords)
             self.persona_agents[persona_data["slug"]] = agent
-            logger.info(f"Initialized agent: {agent} with voice: {voice_id[:20] if voice_id else 'None'}...")
+            logger.info(f"Initialized agent: {agent} with {len(agent.clue_keywords)} clue keywords, voice: {voice_id[:20] if voice_id else 'None'}...")
         
         # Game states storage (in-memory for now, could be Redis/DB)
         self.game_states: dict[str, GameState] = {}
@@ -292,3 +297,100 @@ class GameMasterAgent:
             "agent_states": state.get("agent_states", {}),
             "message_count": len(state.get("messages", []))
         }
+    
+    async def generate_hint(self, game_id: str) -> dict:
+        """
+        Generate a hint for the player based on current game progress.
+        
+        The hint is based on:
+        - Critical clues not yet discovered
+        - Current revealed clues
+        - Which personas have been interrogated
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        state = self.game_states.get(game_id)
+        if not state:
+            self.initialize_game(game_id)
+            state = self.game_states[game_id]
+        
+        revealed_clues = state.get("revealed_clues", [])
+        critical_clues = self.scenario.get("solution", {}).get("critical_clues", [])
+        murderer = self.scenario.get("solution", {}).get("murderer", "unknown")
+        motive = self.scenario.get("solution", {}).get("motive", "unknown")
+        
+        # Get interrogation counts
+        agent_states = state.get("agent_states", {})
+        interrogation_info = []
+        for slug, agent_state in agent_states.items():
+            count = agent_state.get("interrogation_count", 0)
+            if count > 0:
+                agent = self.persona_agents.get(slug)
+                if agent:
+                    interrogation_info.append(f"- {agent.name}: {count} questions")
+        
+        interrogation_summary = "\n".join(interrogation_info) if interrogation_info else "No suspects interrogated yet"
+        
+        # Build hint generation prompt
+        hint_prompt = f"""You are the GameMaster of a murder mystery game. The player is stuck and needs a hint.
+
+CASE INFORMATION:
+- Scenario: {self.scenario.get('name', 'Unknown')}
+- Victim: {self.scenario.get('victim', {}).get('name', 'Unknown')}
+- Murderer: {murderer}
+- Motive: {motive}
+
+CRITICAL CLUES TO SOLVE THE CASE:
+{chr(10).join(f"- {clue}" for clue in critical_clues)}
+
+CLUES ALREADY DISCOVERED BY PLAYER:
+{chr(10).join(f"- {clue}" for clue in revealed_clues) if revealed_clues else "None yet"}
+
+INTERROGATION PROGRESS:
+{interrogation_summary}
+
+SUSPECTS:
+{chr(10).join(f"- {p['name']} ({p['role']})" for p in self.scenario.get('personas', []))}
+
+YOUR TASK:
+Generate ONE helpful hint that:
+1. Points the player in the right direction WITHOUT revealing the murderer directly
+2. Suggests a specific question to ask or a specific suspect to focus on
+3. References evidence or inconsistencies they should look for
+4. Is cryptic enough to feel like detective work, but clear enough to be useful
+
+The hint should be 1-2 sentences, written as if from a mysterious informant or the detective's intuition.
+Do NOT reveal who the murderer is directly!
+
+HINT:"""
+
+        try:
+            messages = [
+                SystemMessage(content="You are a helpful GameMaster providing hints in a murder mystery game. Be mysterious but helpful."),
+                HumanMessage(content=hint_prompt)
+            ]
+            
+            response = await self.llm.ainvoke(messages)
+            hint_text = response.content.strip()
+            
+            # Clean up the hint
+            hint_text = hint_text.strip('"').strip()
+            
+            logger.info(f"Generated hint for game {game_id}: {hint_text[:50]}...")
+            
+            return {
+                "hint": hint_text,
+                "hints_used": state.get("hints_used", 0) + 1,
+                "clues_found": len(revealed_clues),
+                "total_critical_clues": len(critical_clues)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating hint: {e}")
+            return {
+                "hint": "Focus on the timeline. Someone's story doesn't add up...",
+                "hints_used": state.get("hints_used", 0) + 1,
+                "clues_found": len(revealed_clues),
+                "total_critical_clues": len(critical_clues),
+                "error": str(e)
+            }

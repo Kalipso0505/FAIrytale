@@ -4,7 +4,7 @@
  * Schreibmaschinen-Font, vergilbtes Papier
  * KEINE separate Topbar - alles integriert
  */
-import { GripVertical, Users, FileText, MessageCircle, MapPin, Clock, AlertTriangle, BookOpen, StickyNote, Pin, Save, Volume2, Target, RotateCcw } from 'lucide-react';
+import { GripVertical, Users, FileText, MessageCircle, MapPin, Clock, AlertTriangle, BookOpen, StickyNote, Pin, Save, Volume2, Target, RotateCcw, Lightbulb, Loader2 } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import { useResize } from '@/hooks/use-resize';
 import { useAudioPlayer } from '@/hooks/use-audio-player';
@@ -23,6 +23,9 @@ interface GameLayoutProps {
     savedMessages: Set<string>;
     gameId: string | null;
     status: GameStatus;
+    hasNewClue?: boolean;
+    isLoadingHint?: boolean;
+    hintsUsed?: number;
     onSelectPersona: (persona: Persona) => void;
     onSendMessage: (message: string) => void;
     onNotesChange: (notes: string) => void;
@@ -31,6 +34,7 @@ interface GameLayoutProps {
     getUnreadCount: (slug: string) => number;
     onAccuse: () => void;
     onReset: () => void;
+    onGetHint?: () => void;
 }
 
 export function GameLayoutV2({
@@ -45,6 +49,9 @@ export function GameLayoutV2({
     savedMessages,
     gameId,
     status,
+    hasNewClue = false,
+    isLoadingHint = false,
+    hintsUsed = 0,
     onSelectPersona,
     onSendMessage,
     onNotesChange,
@@ -53,6 +60,7 @@ export function GameLayoutV2({
     getUnreadCount,
     onAccuse,
     onReset,
+    onGetHint,
 }: GameLayoutProps) {
     const [resizeState, resizeActions] = useResize({
         minWidth: 220,
@@ -175,6 +183,21 @@ export function GameLayoutV2({
 
                 {/* Action Buttons */}
                 <div className="p-3 border-t-2 border-zinc-400 space-y-2">
+                    {/* Hint Button */}
+                    {onGetHint && (
+                        <button
+                            onClick={onGetHint}
+                            disabled={status !== 'active' || isLoadingHint}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-zinc-400 text-white font-mono text-xs uppercase tracking-wider rounded transition-colors"
+                        >
+                            {isLoadingHint ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <Lightbulb className="w-4 h-4" />
+                            )}
+                            {isLoadingHint ? 'Thinking...' : `Get Hint ${hintsUsed > 0 ? `(${hintsUsed})` : ''}`}
+                        </button>
+                    )}
                     <button
                         onClick={onAccuse}
                         disabled={status !== 'active'}
@@ -425,7 +448,10 @@ export function GameLayoutV2({
                         >
                             {tab}
                             {tab === 'clues' && revealedClues.length > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-red-700 text-white rounded font-bold">
+                                <span className={cn(
+                                    "ml-1 px-1.5 py-0.5 text-[10px] bg-green-600 text-white rounded font-bold transition-all",
+                                    hasNewClue && "animate-pulse ring-2 ring-green-400 ring-offset-1 ring-offset-amber-50"
+                                )}>
                                     {revealedClues.length}
                                 </span>
                             )}

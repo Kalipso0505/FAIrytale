@@ -552,6 +552,28 @@ async def get_game_solution(game_id: str):
     }
 
 
+@app.post("/game/{game_id}/hint")
+async def get_hint(game_id: str):
+    """Get a hint from the GameMaster to help the player progress"""
+    gamemaster = gamemasters.get(game_id)
+    
+    if not gamemaster:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Game {game_id} not found"
+        )
+    
+    try:
+        hint_result = await gamemaster.generate_hint(game_id)
+        return hint_result
+    except Exception as e:
+        logger.error(f"Error generating hint for game {game_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate hint: {str(e)}"
+        )
+
+
 @app.get("/debug/graph")
 async def get_graph_debug():
     """Get the graph structure for visualization"""

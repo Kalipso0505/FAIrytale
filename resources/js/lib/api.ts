@@ -77,6 +77,20 @@ export async function accusePersona(
     return response.data;
 }
 
+export interface HintResponse {
+    hint: string;
+    hints_used: number;
+    clues_found: number;
+    total_critical_clues: number;
+}
+
+export async function getHint(gameId: string): Promise<HintResponse> {
+    const response = await api.post<HintResponse>('/game/hint', {
+        game_id: gameId,
+    });
+    return response.data;
+}
+
 // ============================================================================
 // Debug API
 // ============================================================================

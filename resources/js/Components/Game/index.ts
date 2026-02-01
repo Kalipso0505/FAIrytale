@@ -14,6 +14,10 @@ export { IntroScreenV3 } from "./intro-screen-v3";
 export { AccuseModal } from "./accuse-modal";
 export { AccuseModalV2 } from "./accuse-modal-v2";
 
+// Notifications
+export { ClueNotification } from "./ClueNotification";
+export { HintNotification } from "./HintNotification";
+
 // Panels
 export { CaseInfoPanel } from "./case-info-panel";
 

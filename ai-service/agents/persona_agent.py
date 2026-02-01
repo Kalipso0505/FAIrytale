@@ -35,7 +35,7 @@ class PersonaAgent:
     - llm: the language model to use
     """
     
-    def __init__(self, persona_data: dict, llm: ChatOpenAI, voice_id: Optional[str] = None, voice_service: Optional[VoiceService] = None):
+    def __init__(self, persona_data: dict, llm: ChatOpenAI, voice_id: Optional[str] = None, voice_service: Optional[VoiceService] = None, clue_keywords: Optional[list[str]] = None):
         self.slug = persona_data["slug"]
         self.name = persona_data["name"]
         self.role = persona_data["role"]
@@ -49,13 +49,14 @@ class PersonaAgent:
         self.personality = persona_data["personality"]
         self.knows_about_others = persona_data["knows_about_others"]
         
-        # Clue detection keywords for this persona
-        self.clue_keywords = self._setup_clue_keywords()
+        # Clue detection keywords - from scenario or fallback to defaults
+        self.clue_keywords = clue_keywords if clue_keywords else self._setup_default_clue_keywords()
         
-        logger.info(f"PersonaAgent {self.name} initialized with voice: {voice_id[:20] if voice_id else 'None'}...")
+        logger.info(f"PersonaAgent {self.name} initialized with {len(self.clue_keywords)} clue keywords, voice: {voice_id[:20] if voice_id else 'None'}...")
     
-    def _setup_clue_keywords(self) -> list[str]:
-        """Keywords that indicate this persona revealed important info"""
+    def _setup_default_clue_keywords(self) -> list[str]:
+        """Fallback keywords for old scenarios without clue_keywords defined"""
+        # Legacy keywords for old InnoTech scenario
         keywords_map = {
             "tom": ["21:15", "zugangskarte", "sonntag abend", "trophäe", "hand", "schnitt", "geschnitten"],
             "lisa": ["e-mail", "diebstahl", "geheimnisse", "streit am freitag", "samstag"],
@@ -141,8 +142,10 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         response_lower = response.lower()
         
         for keyword in self.clue_keywords:
-            if keyword in response_lower:
-                return f"{self.name} erwähnte '{keyword}'"
+            keyword_lower = keyword.lower()
+            if keyword_lower in response_lower:
+                # Create a more descriptive clue message
+                return f"🔍 {self.name} mentioned '{keyword}'"
         
         return None
     

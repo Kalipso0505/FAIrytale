@@ -484,6 +484,47 @@ class GameController extends Controller
     }
 
     /**
+     * Get a hint from the GameMaster
+     */
+    public function getHint(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'game_id' => 'required|uuid|exists:games,id',
+        ]);
+
+        $game = Game::findOrFail($validated['game_id']);
+
+        if (! $game->isActive()) {
+            return response()->json(['error' => 'Game is not active'], 400);
+        }
+
+        $this->log('info', 'Hint requested', [
+            'game_id' => $game->id,
+        ]);
+
+        try {
+            $hintResult = $this->aiService->getHint($game->id);
+
+            $this->log('info', 'Hint generated', [
+                'game_id' => $game->id,
+                'hints_used' => $hintResult['hints_used'] ?? 0,
+            ]);
+
+            return response()->json($hintResult);
+        } catch (\Exception $e) {
+            $this->log('error', 'Hint generation failed', [
+                'game_id' => $game->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to generate hint',
+                'details' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    /**
      * Get personas list
      */
     private function getPersonas(): array

@@ -12,6 +12,8 @@ import {
     GameHeaderDark,
     AccuseModal,
     AccuseModalV2,
+    ClueNotification,
+    HintNotification,
 } from '@/Components/Game';
 import type { InitialGameData } from '@/types/game';
 
@@ -111,6 +113,18 @@ export default function GameNew({ initialGame }: GamePageProps) {
             {/* Active Game */}
             {(game.status === 'active' || game.status === 'solved' || game.status === 'failed') && (
                 <>
+                    {/* Clue Notification Toast */}
+                    <ClueNotification 
+                        clue={game.newClue} 
+                        onDismiss={game.dismissNewClue} 
+                    />
+                    
+                    {/* Hint Notification Toast */}
+                    <HintNotification 
+                        hint={game.currentHint} 
+                        onDismiss={game.dismissHint} 
+                    />
+                    
                     {/* V2 has NO header - it's integrated into the layout */}
                     {GAME_LAYOUT_VARIANT === 'v2' ? (
                         <GameLayoutV2
@@ -125,6 +139,9 @@ export default function GameNew({ initialGame }: GamePageProps) {
                             savedMessages={game.savedMessages}
                             gameId={game.gameId}
                             status={game.status}
+                            hasNewClue={!!game.newClue}
+                            isLoadingHint={game.isLoadingHint}
+                            hintsUsed={game.hintsUsed}
                             onSelectPersona={game.selectPersona}
                             onSendMessage={game.sendMessage}
                             onNotesChange={game.setNotes}
@@ -133,6 +150,7 @@ export default function GameNew({ initialGame }: GamePageProps) {
                             getUnreadCount={game.getUnreadCount}
                             onAccuse={() => setShowAccuseModal(true)}
                             onReset={game.reset}
+                            onGetHint={game.getHint}
                         />
                     ) : (
                         <div className="h-screen flex flex-col">

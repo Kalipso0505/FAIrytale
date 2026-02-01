@@ -27,7 +27,38 @@ between 9:30 PM and 11:00 PM. The estate has a modern security system with acces
             "Robert's fingerprints on the paperweight (he claims he touched it while tidying up)",
             "Security camera shows Robert leaving the house at 10:15 PM - he claimed to have left at 9:00 PM",
             "A draft of an expert's report documenting the forgeries is found in Robert's apartment"
-        ]
+        ],
+        # Keywords that trigger clue detection when mentioned in responses
+        "clue_keywords": {
+            "robert": [
+                "10:15", "22:15", "ten fifteen",  # Time discrepancy
+                "fingerprint", "fingerabdruck", "fingerabdrücke",  # Fingerprints on weapon
+                "forgery", "forgeries", "fälschung", "fälschungen",  # Art forgeries
+                "expert report", "gutachten", "expertise",  # Expert report
+                "9:00", "21:00", "nine o'clock",  # His false alibi time
+                "replaced", "ersetzt", "ausgetauscht",  # Replaced artworks
+            ],
+            "sophie": [
+                "guesthouse", "gästehaus",  # Secret meeting place
+                "10:45", "22:45",  # Time of secret meeting
+                "affair", "affäre", "relationship", "beziehung",  # Secret affair
+                "thomas", "together",  # With Thomas
+            ],
+            "thomas": [
+                "gambling", "spielschulden", "debts", "schulden",  # Gambling debts
+                "400,000", "400000", "vierhunderttausend",  # Debt amount
+                "guesthouse", "gästehaus",  # Secret meeting place
+                "10:45", "22:45",  # Time of secret meeting
+                "sophie", "affair", "affäre",  # Secret affair
+            ],
+            "isabella": [
+                "bankruptcy", "bankrott", "insolvenz",  # Gallery bankruptcy
+                "350,000", "350000", "dreihundertfünfzigtausend",  # Debt amount
+                "loan", "darlehen", "kredit",  # Asked for loan
+                "10:10", "22:10",  # Time she left
+                "declined", "abgelehnt", "refused",  # Claudia refused
+            ]
+        }
     },
     
     "shared_knowledge": """

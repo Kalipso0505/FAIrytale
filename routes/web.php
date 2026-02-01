@@ -21,6 +21,7 @@ Route::prefix('game')->name('game.')->group(function () {
     Route::post('/chat', [GameController::class, 'chat'])->name('chat');
     Route::get('/{gameId}/history', [GameController::class, 'history'])->name('history');
     Route::post('/accuse', [GameController::class, 'accuse'])->name('accuse');
+    Route::post('/hint', [GameController::class, 'getHint'])->name('hint');
 });
 
 // Debug Dashboard Routes

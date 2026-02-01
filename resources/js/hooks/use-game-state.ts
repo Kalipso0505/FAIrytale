@@ -61,6 +61,14 @@ export function useGameState(initialData?: InitialGameData | null) {
     const [isGenerating, setIsGenerating] = useState(false);
     const [solution, setSolution] = useState<GameSolution | null>(null);
     
+    // New clue notification state
+    const [newClue, setNewClue] = useState<string | null>(null);
+    
+    // Hint state
+    const [currentHint, setCurrentHint] = useState<string | null>(null);
+    const [isLoadingHint, setIsLoadingHint] = useState(false);
+    const [hintsUsed, setHintsUsed] = useState(0);
+    
     // Start screen state
     const [scenarioInput, setScenarioInput] = useState('');
     const [difficulty, setDifficulty] = useState<Difficulty>('mittel');
@@ -210,6 +218,13 @@ export function useGameState(initialData?: InitialGameData | null) {
                     }));
                 }
                 
+                // Trigger new clue notification if a clue was revealed
+                if (data.revealed_clue) {
+                    setNewClue(data.revealed_clue);
+                    // Auto-dismiss after 5 seconds
+                    setTimeout(() => setNewClue(null), 5000);
+                }
+                
                 return {
                     ...prev,
                     messages: {
@@ -296,6 +311,36 @@ export function useGameState(initialData?: InitialGameData | null) {
         return Math.max(0, totalMessages - readCount);
     }, [gameState.messages, readCounts]);
 
+    // Dismiss new clue notification
+    const dismissNewClue = useCallback(() => {
+        setNewClue(null);
+    }, []);
+
+    // Get hint from GameMaster
+    const getHint = useCallback(async () => {
+        if (!gameState.gameId || isLoadingHint) return;
+        
+        setIsLoadingHint(true);
+        try {
+            const result = await api.getHint(gameState.gameId);
+            setCurrentHint(result.hint);
+            setHintsUsed(result.hints_used);
+            // Auto-dismiss after 15 seconds
+            setTimeout(() => setCurrentHint(null), 15000);
+        } catch (error) {
+            console.error('Failed to get hint:', error);
+            setCurrentHint("The GameMaster is unavailable. Try again later...");
+            setTimeout(() => setCurrentHint(null), 5000);
+        } finally {
+            setIsLoadingHint(false);
+        }
+    }, [gameState.gameId, isLoadingHint]);
+
+    // Dismiss hint
+    const dismissHint = useCallback(() => {
+        setCurrentHint(null);
+    }, []);
+
     return {
         // State
         ...gameState,
@@ -308,6 +353,10 @@ export function useGameState(initialData?: InitialGameData | null) {
         pinnedMessages,
         savedMessages,
         notes,
+        newClue,
+        currentHint,
+        isLoadingHint,
+        hintsUsed,
         
         // Actions
         setScenarioInput,
@@ -323,6 +372,9 @@ export function useGameState(initialData?: InitialGameData | null) {
         saveToNotes,
         setNotes,
         getUnreadCount,
+        dismissNewClue,
+        getHint,
+        dismissHint,
     };
 }
 

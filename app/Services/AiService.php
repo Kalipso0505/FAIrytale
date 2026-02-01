@@ -254,4 +254,31 @@ class AiService
 
         return $response->json();
     }
+
+    /**
+     * Get a hint from the GameMaster
+     */
+    public function getHint(string $gameId): array
+    {
+        $this->log('info', 'Requesting hint', ['game_id' => $gameId]);
+
+        $response = Http::timeout(30)->post("{$this->baseUrl}/game/{$gameId}/hint");
+
+        if (! $response->ok()) {
+            $this->log('error', 'Get hint failed', [
+                'game_id' => $gameId,
+                'status_code' => $response->status(),
+            ]);
+            throw new RuntimeException('Failed to get hint: '.$response->body());
+        }
+
+        $result = $response->json();
+
+        $this->log('info', 'Hint received', [
+            'game_id' => $gameId,
+            'hints_used' => $result['hints_used'] ?? 0,
+        ]);
+
+        return $result;
+    }
 }

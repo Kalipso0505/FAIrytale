@@ -20,7 +20,7 @@ from typing import Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .prompt_service import get_prompt_service
 from . import laravel_logger
@@ -171,21 +171,61 @@ class BaseScenarioModel(BaseModel):
     setting: str = Field(description="2-3 paragraphs: Where? When? What happened? How was the body found?")
     victim: VictimModel
     solution: SolutionModel
-    shared_knowledge: str = Field(description="Bullet points of facts everyone knows")
-    timeline: str = Field(description="Timeline of events with times")
+    shared_knowledge: str = Field(
+        default="",
+        description="Bullet points of facts everyone knows"
+    )
+    timeline: str = Field(
+        default="",
+        description="Timeline of events with times"
+    )
     persona_blueprints: list[PersonaBlueprintModel] = Field(description="4+ suspect blueprints", min_length=4)
-    intro_message: str = Field(description="Welcome message introducing the case to the player")
+    intro_message: str = Field(
+        default="Willkommen zum Fall. Befrage die Verdächtigen und finde den Mörder!",
+        description="Welcome message introducing the case to the player"
+    )
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'BaseScenarioModel':
+        """Fill in reasonable defaults for missing fields based on scenario data."""
+        if not self.shared_knowledge:
+            # Generate shared_knowledge from setting and victim
+            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
+- Alle Verdächtigen waren zur Tatzeit anwesend
+- Die Polizei hat den Tatort untersucht"""
+        
+        if not self.timeline:
+            # Generate basic timeline
+            self.timeline = """- Tatzeit: Unbekannt
+- Leiche gefunden: Kurz danach
+- Ermittlungen beginnen: Jetzt"""
+        
+        if not self.intro_message or self.intro_message == "":
+            self.intro_message = f"Willkommen zum Fall '{self.name}'. {self.victim.name} wurde ermordet. Befrage die Verdächtigen und finde den Mörder!"
+        
+        return self
 
 
 class PersonaModel(BaseModel):
     """Full persona details (Phase 2 - generated in parallel)"""
     slug: str = Field(description="Unique ID: lowercase, no umlauts (e.g., 'elena', 'tom')")
     name: str = Field(description="Full name")
-    role: str = Field(description="Job title or relationship to victim")
-    public_description: str = Field(description="What everyone knows about this person (1 sentence)")
-    personality: str = Field(description="How they speak, behave, react to pressure (2-3 sentences)")
-    private_knowledge: str = Field(description="Their secrets, alibi, observations, motives. For the murderer: include 'DU BIST DER MÖRDER' and full confession details")
-    knows_about_others: str = Field(description="What they know about other suspects (format: '- Name: knowledge')")
+    role: str = Field(default="Verdächtiger", description="Job title or relationship to victim")
+    public_description: str = Field(default="", description="What everyone knows about this person (1 sentence)")
+    personality: str = Field(default="Zurückhaltend und beobachtend.", description="How they speak, behave, react to pressure (2-3 sentences)")
+    private_knowledge: str = Field(default="", description="Their secrets, alibi, observations, motives. For the murderer: include 'DU BIST DER MÖRDER' and full confession details")
+    knows_about_others: str = Field(default="", description="What they know about other suspects (format: '- Name: knowledge')")
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'PersonaModel':
+        """Fill in reasonable defaults for missing fields."""
+        if not self.public_description:
+            self.public_description = f"{self.name} ist {self.role}."
+        
+        if not self.private_knowledge:
+            self.private_knowledge = "Hat zur Tatzeit kein wasserdichtes Alibi."
+        
+        return self
 
 
 class ScenarioModel(BaseModel):
@@ -194,10 +234,25 @@ class ScenarioModel(BaseModel):
     setting: str = Field(description="2-3 paragraphs: Where? When? What happened? How was the body found?")
     victim: VictimModel
     solution: SolutionModel
-    shared_knowledge: str = Field(description="Bullet points of facts everyone knows")
-    timeline: str = Field(description="Timeline of events with times")
+    shared_knowledge: str = Field(default="", description="Bullet points of facts everyone knows")
+    timeline: str = Field(default="", description="Timeline of events with times")
     personas: list[PersonaModel] = Field(description="4+ suspects (one is the murderer)", min_length=4)
-    intro_message: str = Field(description="Welcome message introducing the case to the player")
+    intro_message: str = Field(default="", description="Welcome message introducing the case to the player")
+    
+    @model_validator(mode='after')
+    def fill_missing_fields(self) -> 'ScenarioModel':
+        """Fill in reasonable defaults for missing fields."""
+        if not self.shared_knowledge:
+            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
+- Alle Verdächtigen waren zur Tatzeit anwesend"""
+        
+        if not self.timeline:
+            self.timeline = "- Tatzeit: Unbekannt\n- Ermittlungen beginnen: Jetzt"
+        
+        if not self.intro_message:
+            self.intro_message = f"Willkommen zum Fall '{self.name}'. Befrage die Verdächtigen und finde den Mörder!"
+        
+        return self
 
 
 # === Prompts ===

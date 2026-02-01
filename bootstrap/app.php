@@ -14,6 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
         ]);
+        
+        // Exclude internal API routes from CSRF protection
+        $middleware->validateCsrfTokens(except: [
+            'api/internal/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

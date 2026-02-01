@@ -80,11 +80,34 @@ class GameController extends Controller
 
             $duration = round(microtime(true) - $startTime, 2);
 
-            $this->log('info', 'Game started', [
+            // Build log context with metrics from AI service
+            $logContext = [
                 'game_id' => $game->id,
                 'scenario' => $gameInfo['scenario_name'] ?? 'unknown',
                 'generation_sec' => $duration,
-            ]);
+            ];
+
+            // Add detailed metrics if available
+            if (isset($scenarioResult['metrics'])) {
+                $metrics = $scenarioResult['metrics'];
+                $logContext['metrics'] = [
+                    'total_sec' => $metrics['total_sec'] ?? null,
+                    'phase1_sec' => $metrics['phase1_sec'] ?? null,
+                    'phase2_sec' => $metrics['phase2_sec'] ?? null,
+                    'retries' => $metrics['retries'] ?? 0,
+                ];
+                
+                // Log warning if there were retries
+                if (($metrics['retries'] ?? 0) > 0) {
+                    $this->log('warning', 'Scenario generation required retries', [
+                        'game_id' => $game->id,
+                        'retries' => $metrics['retries'],
+                        'phase1_sec' => $metrics['phase1_sec'],
+                    ]);
+                }
+            }
+
+            $this->log('info', 'Game started', $logContext);
 
             return response()->json([
                 'game_id' => $game->id,

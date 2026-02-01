@@ -171,11 +171,21 @@ class ScenarioGenerateRequest(BaseModel):
     difficulty: str = "mittel"
 
 
+class GenerationMetricsResponse(BaseModel):
+    """Metrics from scenario generation for logging"""
+    total_sec: float
+    phase1_sec: float
+    phase2_sec: float
+    retries: int = 0
+    persona_times: dict[str, float] = {}
+
+
 class ScenarioGenerateResponse(BaseModel):
     """Response for scenario generation"""
     success: bool
     game_id: str
     scenario_name: str
+    metrics: Optional[GenerationMetricsResponse] = None
 
 
 class QuickStartRequest(BaseModel):
@@ -246,41 +256,85 @@ async def generate_scenario(request: ScenarioGenerateRequest):
     Uses parallel persona generation for faster scenario creation.
     This creates a unique scenario for the game_id.
     """
+    import time
+    request_start = time.time()
+    
     if not scenario_generator:
         raise HTTPException(status_code=503, detail="Scenario generator not initialized")
     
-    logger.info(f"Generating scenario for game {request.game_id} (parallel mode)")
+    logger.info("=" * 70)
+    logger.info(f"📥 POST /scenario/generate")
+    logger.info(f"   Game ID:    {request.game_id}")
+    logger.info(f"   Difficulty: {request.difficulty}")
+    logger.info(f"   Input:      {request.user_input[:50] + '...' if len(request.user_input) > 50 else request.user_input or '(random)'}")
+    logger.info("=" * 70)
     
     try:
         # Generate the scenario using async parallel generation
+        gen_start = time.time()
         scenario = await scenario_generator.generate_async(
             user_input=request.user_input,
             difficulty=request.difficulty
         )
+        gen_time = time.time() - gen_start
         
         # Create GameMaster for this game
+        gm_start = time.time()
         gamemaster = GameMasterAgent(
             scenario=scenario,
             model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         )
+        gm_time = time.time() - gm_start
         
         # Create the graph
+        graph_start = time.time()
         graph = create_murder_mystery_graph(gamemaster)
+        graph_time = time.time() - graph_start
         
         # Store them
         gamemasters[request.game_id] = gamemaster
         murder_graphs[request.game_id] = graph
         
-        logger.info(f"✅ Game {request.game_id} initialized with scenario: {scenario['name']}")
+        total_time = time.time() - request_start
+        
+        logger.info("=" * 70)
+        logger.info(f"✅ POST /scenario/generate COMPLETE")
+        logger.info(f"   Game:           {request.game_id}")
+        logger.info(f"   Scenario:       {scenario['name']}")
+        logger.info(f"   Personas:       {len(scenario['personas'])}")
+        logger.info(f"   Murderer:       {scenario['solution']['murderer']}")
+        logger.info("-" * 70)
+        logger.info(f"   ⏱️  Generation:   {gen_time:.2f}s")
+        logger.info(f"   ⏱️  GameMaster:   {gm_time:.2f}s")
+        logger.info(f"   ⏱️  Graph:        {graph_time:.2f}s")
+        logger.info(f"   ⏱️  TOTAL:        {total_time:.2f}s")
+        logger.info("=" * 70)
+        
+        # Extract metrics from scenario (added by generator)
+        metrics_data = scenario.pop("_metrics", None)
+        metrics_response = None
+        if metrics_data:
+            metrics_response = GenerationMetricsResponse(
+                total_sec=metrics_data.get("total_sec", 0),
+                phase1_sec=metrics_data.get("phase1_sec", 0),
+                phase2_sec=metrics_data.get("phase2_sec", 0),
+                retries=metrics_data.get("retries", 0),
+                persona_times=metrics_data.get("persona_times", {})
+            )
         
         return ScenarioGenerateResponse(
             success=True,
             game_id=request.game_id,
-            scenario_name=scenario["name"]
+            scenario_name=scenario["name"],
+            metrics=metrics_response
         )
         
     except Exception as e:
-        logger.error(f"Failed to generate scenario: {e}", exc_info=True)
+        total_time = time.time() - request_start
+        logger.error("=" * 70)
+        logger.error(f"❌ POST /scenario/generate FAILED after {total_time:.2f}s")
+        logger.error(f"   Error: {e}")
+        logger.error("=" * 70, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Scenario generation failed: {str(e)}")
 
 
@@ -311,6 +365,9 @@ async def chat_with_persona(request: ChatRequest):
     
     This is the main endpoint that invokes the multi-agent system.
     """
+    import time
+    request_start = time.time()
+    
     gamemaster = gamemasters.get(request.game_id)
     murder_graph = murder_graphs.get(request.game_id)
     
@@ -337,13 +394,14 @@ async def chat_with_persona(request: ChatRequest):
             chat_history=request.chat_history
         )
         
-        logger.info(f"=== GRAPH INVOCATION ===")
-        logger.info(f"Game: {request.game_id}")
-        logger.info(f"Persona: {request.persona_slug}")
-        logger.info(f"Message: {request.message[:50]}...")
+        logger.info(f"💬 POST /chat - {request.persona_slug}")
+        logger.info(f"   Game: {request.game_id[:8]}...")
+        logger.info(f"   Message: \"{request.message[:60]}{'...' if len(request.message) > 60 else ''}\"")
         
         # Invoke the LangGraph
+        graph_start = time.time()
         final_state = await murder_graph.ainvoke(state)
+        graph_time = time.time() - graph_start
         
         # Update stored game state
         gamemaster.update_game_state(request.game_id, final_state)
@@ -352,8 +410,12 @@ async def chat_with_persona(request: ChatRequest):
         agent = gamemaster.get_persona_agent(request.persona_slug)
         agent_state = final_state.get("agent_states", {}).get(request.persona_slug, {})
         
-        logger.info(f"=== GRAPH COMPLETE ===")
-        logger.info(f"Response from: {final_state.get('responding_agent')}")
+        response_text = final_state.get("final_response", "")
+        total_time = time.time() - request_start
+        
+        logger.info(f"   ✅ Response in {graph_time:.2f}s (total: {total_time:.2f}s)")
+        logger.info(f"   Response: \"{response_text[:60]}{'...' if len(response_text) > 60 else ''}\"")
+        logger.info(f"   Stress: {agent_state.get('stress_level', 0):.2f}, Interrogations: {agent_state.get('interrogation_count', 0)}")
         
         # Convert auto notes to response format
         new_notes = [
@@ -393,7 +455,8 @@ async def chat_with_persona(request: ChatRequest):
         )
         
     except Exception as e:
-        logger.error(f"Error in chat: {e}", exc_info=True)
+        total_time = time.time() - request_start
+        logger.error(f"   ❌ Chat failed after {total_time:.2f}s: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -14,14 +14,127 @@ Prompts are loaded from the Laravel database via PromptService.
 import os
 import asyncio
 import logging
+import time
+from dataclasses import dataclass, field
+from typing import Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from .prompt_service import get_prompt_service
+from . import laravel_logger
 
 logger = logging.getLogger(__name__)
+
+
+# === Performance Tracking ===
+
+@dataclass
+class GenerationMetrics:
+    """Track performance metrics for scenario generation."""
+    start_time: float = field(default_factory=time.time)
+    phase1_attempts: list = field(default_factory=list)  # List of (start, end, success) tuples
+    phase1_current_start: Optional[float] = None
+    phase2_start: Optional[float] = None
+    phase2_end: Optional[float] = None
+    persona_times: dict = field(default_factory=dict)
+    total_end: Optional[float] = None
+    retries: int = 0
+    
+    def start_phase1(self):
+        self.phase1_current_start = time.time()
+        
+    def end_phase1(self, success: bool = True):
+        if self.phase1_current_start:
+            self.phase1_attempts.append((
+                self.phase1_current_start,
+                time.time(),
+                success
+            ))
+            if not success:
+                self.retries += 1
+            self.phase1_current_start = None
+        
+    def start_phase2(self):
+        self.phase2_start = time.time()
+        
+    def end_phase2(self):
+        self.phase2_end = time.time()
+        
+    def record_persona(self, slug: str, duration: float):
+        self.persona_times[slug] = duration
+        
+    def finish(self):
+        self.total_end = time.time()
+        
+    @property
+    def phase1_duration(self) -> float:
+        """Total time spent on Phase 1 (including retries)."""
+        return sum(end - start for start, end, _ in self.phase1_attempts)
+    
+    @property
+    def phase1_success_duration(self) -> float:
+        """Time for successful Phase 1 only."""
+        for start, end, success in self.phase1_attempts:
+            if success:
+                return end - start
+        return 0
+        
+    @property
+    def phase2_duration(self) -> float:
+        if self.phase2_start and self.phase2_end:
+            return self.phase2_end - self.phase2_start
+        return 0
+        
+    @property
+    def total_duration(self) -> float:
+        if self.total_end:
+            return self.total_end - self.start_time
+        return time.time() - self.start_time
+        
+    def log_summary(self, scenario_name: str = ""):
+        """Log a summary of generation metrics."""
+        logger.info("=" * 60)
+        logger.info("📊 SCENARIO GENERATION METRICS")
+        logger.info("=" * 60)
+        
+        if self.retries > 0:
+            logger.info(f"  ⚠️  Retries:               {self.retries}")
+            logger.info(f"  Phase 1 (total):          {self.phase1_duration:.2f}s")
+            for i, (start, end, success) in enumerate(self.phase1_attempts):
+                status = "✅" if success else "❌"
+                logger.info(f"    Attempt {i+1}: {status} {end-start:.2f}s")
+        else:
+            logger.info(f"  Phase 1 (Base Scenario):  {self.phase1_duration:.2f}s")
+            
+        logger.info(f"  Phase 2 (Personas):       {self.phase2_duration:.2f}s")
+        
+        # Send summary to Laravel game log (fire-and-forget)
+        laravel_logger.info(
+            "Scenario generation complete",
+            scenario=scenario_name,
+            total_sec=round(self.total_duration, 2),
+            phase1_sec=round(self.phase1_duration, 2),
+            phase2_sec=round(self.phase2_duration, 2),
+            retries=self.retries
+        )
+        
+        if self.persona_times:
+            logger.info("  Individual Personas:")
+            for slug, duration in sorted(self.persona_times.items(), key=lambda x: x[1], reverse=True):
+                logger.info(f"    - {slug}: {duration:.2f}s")
+            avg_persona = sum(self.persona_times.values()) / len(self.persona_times)
+            logger.info(f"  Avg persona time:         {avg_persona:.2f}s")
+            sequential_time = sum(self.persona_times.values())
+            logger.info(f"  Sequential would be:      {sequential_time:.2f}s")
+            savings = sequential_time - self.phase2_duration
+            if sequential_time > 0:
+                logger.info(f"  ⚡ Time saved (parallel):  {savings:.2f}s ({savings/sequential_time*100:.0f}%)")
+        
+        logger.info("-" * 60)
+        logger.info(f"  🏁 TOTAL TIME:            {self.total_duration:.2f}s")
+        logger.info("=" * 60)
 
 
 # === Pydantic Models for Structured Output ===
@@ -95,8 +208,13 @@ Die vollständigen Persona-Details werden separat generiert.
 
 ## Deine Aufgabe:
 1. Erstelle Setting, Opfer, Lösung, Timeline
-2. Erstelle BLUEPRINTS für 4+ Verdächtige (einer ist Mörder)
+2. Erstelle BLUEPRINTS für GENAU 4 Verdächtige (einer ist Mörder)
 3. Für jeden Blueprint: Name, Rolle, kurze Geheimniszusammenfassung
+
+⚠️ KRITISCH: Du MUSST EXAKT 4 persona_blueprints erstellen!
+- Nicht 3, nicht 5 - GENAU 4 Personen!
+- Einer davon ist der Mörder (is_murderer=true)
+- Die anderen 3 sind unschuldig (is_murderer=false)
 
 ## Regeln:
 - Logisch konsistent (Alibis, Zeiten müssen passen)
@@ -186,7 +304,7 @@ class ScenarioGenerator:
         
         logger.info(f"ScenarioGenerator initialized with model: {model_name} (Parallel Generation enabled)")
     
-    def generate(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 1) -> dict:
+    def generate(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 2) -> dict:
         """
         Generate scenario synchronously (for CLI/testing only).
         
@@ -205,7 +323,7 @@ class ScenarioGenerator:
             # No running loop - safe to use asyncio.run
             return asyncio.run(self.generate_async(user_input, difficulty, max_retries))
     
-    async def generate_async(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 1) -> dict:
+    async def generate_async(self, user_input: str = "", difficulty: str = "mittel", max_retries: int = 2) -> dict:
         """
         Generate a new murder mystery scenario using parallel persona generation.
         
@@ -214,24 +332,50 @@ class ScenarioGenerator:
         
         Total: ~10-20 sec instead of ~30-60 sec
         """
-        logger.info(f"🚀 Generating scenario (Parallel Mode): difficulty={difficulty}")
+        metrics = GenerationMetrics()
+        
+        logger.info("=" * 60)
+        logger.info("🚀 STARTING SCENARIO GENERATION (Parallel Mode)")
+        logger.info("=" * 60)
+        logger.info(f"  Model:      {self.model_name}")
+        logger.info(f"  Difficulty: {difficulty}")
+        logger.info(f"  User Input: {user_input[:50] + '...' if len(user_input) > 50 else user_input or '(random)'}")
+        logger.info("-" * 60)
         
         last_error = None
         
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
-                    logger.warning(f"Retry attempt {attempt}/{max_retries} - previous error: {last_error}")
+                    logger.warning(f"⚠️ Retry attempt {attempt}/{max_retries} - previous error: {last_error}")
+                    # Don't reset metrics - we want to track total time including retries
                 
                 # === PHASE 1: Generate base scenario ===
-                logger.info("📋 Phase 1: Generating base scenario with blueprints...")
-                base_scenario = await self._generate_base_scenario(user_input, difficulty)
-                logger.info(f"✅ Phase 1 complete: {base_scenario.name} with {len(base_scenario.persona_blueprints)} blueprints")
+                metrics.start_phase1()
+                logger.info("📋 PHASE 1: Generating base scenario with blueprints...")
+                try:
+                    base_scenario = await self._generate_base_scenario(user_input, difficulty)
+                    metrics.end_phase1(success=True)
+                except Exception as e:
+                    metrics.end_phase1(success=False)
+                    raise e
+                
+                logger.info(f"✅ Phase 1 complete in {metrics.phase1_success_duration:.2f}s")
+                logger.info(f"   Case: {base_scenario.name}")
+                logger.info(f"   Victim: {base_scenario.victim.name} ({base_scenario.victim.role})")
+                logger.info(f"   Murderer: {base_scenario.solution.murderer}")
+                logger.info(f"   Blueprints: {len(base_scenario.persona_blueprints)}")
+                for bp in base_scenario.persona_blueprints:
+                    marker = " 🔪" if bp.is_murderer else ""
+                    logger.info(f"     - {bp.slug}: {bp.name} ({bp.role}){marker}")
                 
                 # === PHASE 2: Generate all personas in parallel ===
-                logger.info(f"👥 Phase 2: Generating {len(base_scenario.persona_blueprints)} personas in PARALLEL...")
-                personas = await self._generate_personas_parallel(base_scenario, difficulty)
-                logger.info(f"✅ Phase 2 complete: {len(personas)} personas generated")
+                metrics.start_phase2()
+                logger.info(f"👥 PHASE 2: Generating {len(base_scenario.persona_blueprints)} personas in PARALLEL...")
+                personas = await self._generate_personas_parallel(base_scenario, difficulty, metrics)
+                metrics.end_phase2()
+                
+                logger.info(f"✅ Phase 2 complete in {metrics.phase2_duration:.2f}s")
                 
                 # === Assemble final scenario ===
                 scenario_dict = {
@@ -248,15 +392,41 @@ class ScenarioGenerator:
                 # Validate
                 self._validate_scenario(scenario_dict)
                 
-                logger.info(f"✅ Scenario generated and validated: {scenario_dict['name']}")
+                # Log final metrics
+                metrics.finish()
+                metrics.log_summary(scenario_name=scenario_dict.get("name", ""))
+                
+                # Attach metrics to scenario for API response
+                scenario_dict["_metrics"] = {
+                    "total_sec": round(metrics.total_duration, 2),
+                    "phase1_sec": round(metrics.phase1_duration, 2),
+                    "phase2_sec": round(metrics.phase2_duration, 2),
+                    "retries": metrics.retries,
+                    "persona_times": {k: round(v, 2) for k, v in metrics.persona_times.items()}
+                }
+                
                 return scenario_dict
                 
             except Exception as e:
                 last_error = str(e)
-                logger.warning(f"Attempt {attempt + 1} failed: {last_error}")
+                logger.error(f"❌ Attempt {attempt + 1} failed: {last_error}")
+                
+                # Log retry/error to Laravel
+                laravel_logger.warning(
+                    "Scenario generation attempt failed",
+                    attempt=attempt + 1,
+                    error=last_error[:200],
+                    duration_sec=round(metrics.total_duration, 2)
+                )
                 
                 if attempt >= max_retries:
-                    logger.error(f"All {max_retries + 1} attempts failed")
+                    logger.error(f"💥 All {max_retries + 1} attempts failed after {metrics.total_duration:.2f}s")
+                    laravel_logger.error(
+                        "Scenario generation failed permanently",
+                        attempts=max_retries + 1,
+                        error=last_error[:200],
+                        duration_sec=round(metrics.total_duration, 2)
+                    )
                     raise ValueError(f"Scenario generation failed: {last_error}")
         
         raise ValueError(f"Scenario generation failed: {last_error}")
@@ -287,7 +457,12 @@ Sprache: Deutsch
         # Use ainvoke for async
         return await self.base_llm.ainvoke(messages)
     
-    async def _generate_personas_parallel(self, base_scenario: BaseScenarioModel, difficulty: str) -> list[PersonaModel]:
+    async def _generate_personas_parallel(
+        self, 
+        base_scenario: BaseScenarioModel, 
+        difficulty: str,
+        metrics: GenerationMetrics
+    ) -> list[PersonaModel]:
         """Phase 2: Generate all personas in parallel."""
         
         # Build context for persona generation
@@ -311,11 +486,13 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
                 blueprint=blueprint,
                 scenario_context=scenario_context,
                 other_personas=other_personas_list,
-                difficulty=difficulty
+                difficulty=difficulty,
+                metrics=metrics
             )
             tasks.append(task)
         
         # Run all persona generations in parallel!
+        logger.info(f"   Launching {len(tasks)} parallel API calls...")
         personas = await asyncio.gather(*tasks)
         
         return list(personas)
@@ -325,11 +502,14 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
         blueprint: PersonaBlueprintModel,
         scenario_context: str,
         other_personas: str,
-        difficulty: str
+        difficulty: str,
+        metrics: GenerationMetrics
     ) -> PersonaModel:
         """Generate a single persona based on blueprint."""
         
-        logger.info(f"  👤 Generating persona: {blueprint.name}{'  🔪 (MURDERER)' if blueprint.is_murderer else ''}")
+        start_time = time.time()
+        role_marker = " 🔪 MURDERER" if blueprint.is_murderer else ""
+        logger.info(f"     → Starting: {blueprint.slug} ({blueprint.name}){role_marker}")
         
         # Choose instructions based on murderer status
         if blueprint.is_murderer:
@@ -360,7 +540,11 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
         persona.role = blueprint.role
         persona.public_description = blueprint.public_description
         
-        logger.info(f"  ✅ Persona complete: {blueprint.name}")
+        # Record timing
+        duration = time.time() - start_time
+        metrics.record_persona(blueprint.slug, duration)
+        
+        logger.info(f"     ✓ Complete: {blueprint.slug} in {duration:.2f}s")
         return persona
     
     def _validate_scenario(self, scenario: dict) -> None:

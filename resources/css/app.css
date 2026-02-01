@@ -170,6 +170,22 @@
     .animate-fade-in {
         animation: fade-in 0.2s ease-out;
     }
+
+    /* Blood drip animation */
+    @keyframes drip {
+        0%, 100% {
+            height: 1.5rem;
+            opacity: 0.9;
+        }
+        50% {
+            height: 2rem;
+            opacity: 1;
+        }
+    }
+
+    .animate-drip {
+        animation: drip 3s ease-in-out infinite;
+    }
 }
 
 /* ============================================================================

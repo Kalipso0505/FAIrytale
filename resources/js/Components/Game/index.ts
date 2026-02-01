@@ -1,22 +1,23 @@
 // Main Layout
-export { GameLayout } from './game-layout';
-export { GameHeader } from './game-header';
+export { GameLayout } from "./game-layout";
+export { GameHeader } from "./game-header";
 
 // Screens
-export { StartScreen } from './start-screen';
-export { IntroScreen } from './intro-screen';
+export { StartScreen } from "./start-screen";
+export { StartScreenV3 } from "./start-screen-v3";
+export { IntroScreen } from "./intro-screen";
 
 // Modals
-export { AccuseModal } from './accuse-modal';
+export { AccuseModal } from "./accuse-modal";
 
 // Panels
-export { CaseInfoPanel } from './case-info-panel';
+export { CaseInfoPanel } from "./case-info-panel";
 
 // Chat
-export { ChatWindow } from './chat/chat-window';
-export { ChatMessage } from './chat/chat-message';
-export { ChatInput } from './chat/chat-input';
+export { ChatWindow } from "./chat/chat-window";
+export { ChatMessage } from "./chat/chat-message";
+export { ChatInput } from "./chat/chat-input";
 
 // Persona
-export { PersonaList } from './persona/persona-list';
-export { PersonaCard } from './persona/persona-card';
+export { PersonaList } from "./persona/persona-list";
+export { PersonaCard } from "./persona/persona-card";

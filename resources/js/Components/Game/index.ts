@@ -3,9 +3,8 @@ export { GameLayout } from "./game-layout";
 export { GameHeader } from "./game-header";
 
 // Screens
-export { StartScreen } from "./start-screen";
 export { StartScreenV3 } from "./start-screen-v3";
-export { IntroScreen } from "./intro-screen";
+export { IntroScreenV3 } from "./intro-screen-v3";
 
 // Modals
 export { AccuseModal } from "./accuse-modal";

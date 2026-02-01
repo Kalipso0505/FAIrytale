@@ -3,7 +3,7 @@ import { Head } from '@inertiajs/react';
 import { useGameState } from '@/hooks/use-game-state';
 import {
     StartScreenV3,
-    IntroScreen,
+    IntroScreenV3,
     GameLayout,
     GameHeader,
     AccuseModal,
@@ -61,7 +61,7 @@ export default function GameNew() {
 
             {/* Intro Screen */}
             {game.status === 'intro' && (
-                <IntroScreen
+                <IntroScreenV3
                     caseInfo={caseInfo}
                     personas={game.personas}
                     onBeginInvestigation={game.beginInvestigation}

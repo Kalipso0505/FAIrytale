@@ -136,7 +136,7 @@ class PromptService:
         if not template:
             logger.error("persona_system_prompt not found in database!")
             # Use a minimal fallback
-            template = "Du bist {persona_name}, {persona_role}. {personality}"
+            template = "You are {persona_name}, {persona_role}. {personality}"
         
         return template.format(
             persona_name=persona_name,

@@ -148,7 +148,7 @@ export function useGameState(initialData?: InitialGameData | null) {
             setReadCounts({});
             setSelectedPersona(null);
         } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : 'Szenario-Generierung fehlgeschlagen';
+            const errorMessage = error instanceof Error ? error.message : 'Scenario generation failed';
             console.error('Failed to generate scenario:', error);
             throw new Error(errorMessage);
         } finally {

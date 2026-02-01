@@ -95,7 +95,7 @@ async def started(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.STARTED,
         progress=0,
-        message="Generierung gestartet..."
+        message="Generation started..."
     ))
 
 
@@ -105,7 +105,7 @@ async def generating_scenario(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.GENERATING_SCENARIO,
         progress=10,
-        message="Szenario wird erstellt..."
+        message="Creating scenario..."
     ))
 
 
@@ -115,7 +115,7 @@ async def scenario_complete(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.SCENARIO_COMPLETE,
         progress=40,
-        message="Szenario erstellt, Charaktere werden generiert..."
+        message="Scenario created, generating characters..."
     ))
 
 
@@ -125,7 +125,7 @@ async def generating_personas(game_id: str, total: int) -> None:
         game_id=game_id,
         stage=ProgressStage.GENERATING_PERSONAS,
         progress=45,
-        message=f"Generiere {total} Charaktere parallel...",
+        message=f"Generating {total} characters in parallel...",
         total_personas=total
     ))
 
@@ -141,7 +141,7 @@ async def persona_complete(game_id: str, name: str, index: int, total: int) -> N
         game_id=game_id,
         stage=ProgressStage.PERSONA_COMPLETE,
         progress=progress,
-        message=f"Charakter '{name}' erstellt ({index + 1}/{total})",
+        message=f"Character '{name}' created ({index + 1}/{total})",
         persona_name=name,
         persona_index=index,
         total_personas=total
@@ -154,7 +154,7 @@ async def generating_images(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.GENERATING_IMAGES,
         progress=85,
-        message="Tatort-Bilder werden generiert..."
+        message="Generating crime scene photos..."
     ))
 
 
@@ -164,7 +164,7 @@ async def initializing_game(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.INITIALIZING_GAME,
         progress=95,
-        message="Spiel wird initialisiert..."
+        message="Initializing game..."
     ))
 
 
@@ -174,7 +174,7 @@ async def complete(game_id: str) -> None:
         game_id=game_id,
         stage=ProgressStage.COMPLETE,
         progress=100,
-        message="Generierung abgeschlossen!"
+        message="Generation complete!"
     ))
 
 
@@ -184,5 +184,5 @@ async def error(game_id: str, error_message: str) -> None:
         game_id=game_id,
         stage=ProgressStage.ERROR,
         progress=0,
-        message=f"Fehler: {error_message}"
+        message=f"Error: {error_message}"
     ))

@@ -83,19 +83,19 @@ class PersonaAgent:
         stress_modifier = ""
         if stress > 0.3:
             stress_modifier += f"""
-=== AKTUELLER ZUSTAND ===
-Stress-Level: {stress:.0%}
-Du wirst merklich nervöser. Deine Antworten werden kürzer, du zögerst mehr.
+=== CURRENT STATE ===
+Stress Level: {stress:.0%}
+You are becoming noticeably more nervous. Your answers are getting shorter, you hesitate more.
 """
         
         if stress > 0.6:
-            stress_modifier += """Du bist sehr gestresst. Du machst kleine Fehler in deinen Aussagen.
-Bei direkter Konfrontation könntest du dich verplappern.
+            stress_modifier += """You are very stressed. You are making small mistakes in your statements.
+When confronted directly, you might slip up.
 """
         
         if interrogation_count > 5:
             stress_modifier += f"""
-Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsichtiger.
+You have already been questioned {interrogation_count} times. You are getting tired and more careless.
 """
         
         # Get formatted prompt from PromptService
@@ -160,43 +160,43 @@ Du wurdest bereits {interrogation_count} mal befragt. Du wirst müde und unvorsi
         - observation: What they saw, heard, or noticed
         - contradiction: Statements that contradict earlier info
         """
-        extraction_prompt = f"""Du bist ein Ermittler-Assistent. Analysiere die folgende Aussage von {self.name} ({self.role}) und extrahiere relevante Ermittlungsnotizen.
+        extraction_prompt = f"""You are an investigator assistant. Analyze the following statement from {self.name} ({self.role}) and extract relevant investigation notes.
 
-FRAGE DES ERMITTLERS:
+INVESTIGATOR'S QUESTION:
 {user_question}
 
-ANTWORT VON {self.name.upper()}:
+RESPONSE FROM {self.name.upper()}:
 {response}
 
-BEKANNTE FAKTEN ZUM FALL:
-- Opfer: {state.get('victim', 'Unbekannt')}
-- Zeitlinie: {state.get('timeline', 'Keine Angaben')}
+KNOWN FACTS ABOUT THE CASE:
+- Victim: {state.get('victim', 'Unknown')}
+- Timeline: {state.get('timeline', 'No information')}
 
-AUFGABE:
-Extrahiere NUR relevante Notizen, die für die Ermittlung wichtig sein könnten. Ignoriere Small Talk und irrelevante Aussagen.
+TASK:
+Extract ONLY relevant notes that could be important for the investigation. Ignore small talk and irrelevant statements.
 
-Antworte AUSSCHLIESSLICH mit einem JSON-Array. Wenn keine relevanten Informationen vorhanden sind, antworte mit [].
+Reply EXCLUSIVELY with a JSON array. If there is no relevant information, reply with [].
 
-Jede Notiz muss folgendes Format haben:
+Each note must have the following format:
 {{
-  "text": "Kurze, prägnante Notiz (max 100 Zeichen)",
+  "text": "Short, concise note (max 100 characters)",
   "category": "alibi" | "motive" | "relationship" | "observation" | "contradiction"
 }}
 
-Kategorien:
-- alibi: Angaben zu Aufenthaltsort/Zeit
-- motive: Mögliche Motive, Konflikte, Geheimnisse
-- relationship: Beziehungen zum Opfer oder anderen Personen
-- observation: Was die Person gesehen/gehört hat
-- contradiction: Widersprüche zu bekannten Fakten
+Categories:
+- alibi: Information about location/time
+- motive: Possible motives, conflicts, secrets
+- relationship: Relationships to the victim or other people
+- observation: What the person saw/heard
+- contradiction: Contradictions to known facts
 
-WICHTIG: Extrahiere nur NEUE, relevante Informationen. Maximal 2-3 Notizen pro Antwort.
+IMPORTANT: Extract only NEW, relevant information. Maximum 2-3 notes per response.
 
-JSON-Array:"""
+JSON Array:"""
 
         try:
             messages = [
-                SystemMessage(content="Du bist ein präziser Ermittler-Assistent. Antworte NUR mit validem JSON."),
+                SystemMessage(content="You are a precise investigator assistant. Reply ONLY with valid JSON."),
                 HumanMessage(content=extraction_prompt)
             ]
             

@@ -181,7 +181,7 @@ class BaseScenarioModel(BaseModel):
     )
     persona_blueprints: list[PersonaBlueprintModel] = Field(description="4+ suspect blueprints", min_length=4)
     intro_message: str = Field(
-        default="Willkommen zum Fall. Befrage die Verdächtigen und finde den Mörder!",
+        default="Welcome to the case. Question the suspects and find the murderer!",
         description="Welcome message introducing the case to the player"
     )
     
@@ -190,18 +190,18 @@ class BaseScenarioModel(BaseModel):
         """Fill in reasonable defaults for missing fields based on scenario data."""
         if not self.shared_knowledge:
             # Generate shared_knowledge from setting and victim
-            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
-- Alle Verdächtigen waren zur Tatzeit anwesend
-- Die Polizei hat den Tatort untersucht"""
+            self.shared_knowledge = f"""- {self.victim.name} was found dead
+- All suspects were present at the time of the crime
+- The police have examined the crime scene"""
         
         if not self.timeline:
             # Generate basic timeline
-            self.timeline = """- Tatzeit: Unbekannt
-- Leiche gefunden: Kurz danach
-- Ermittlungen beginnen: Jetzt"""
+            self.timeline = """- Time of crime: Unknown
+- Body found: Shortly after
+- Investigation begins: Now"""
         
         if not self.intro_message or self.intro_message == "":
-            self.intro_message = f"Willkommen zum Fall '{self.name}'. {self.victim.name} wurde ermordet. Befrage die Verdächtigen und finde den Mörder!"
+            self.intro_message = f"Welcome to the case '{self.name}'. {self.victim.name} was murdered. Question the suspects and find the murderer!"
         
         return self
 
@@ -210,20 +210,20 @@ class PersonaModel(BaseModel):
     """Full persona details (Phase 2 - generated in parallel)"""
     slug: str = Field(description="Unique ID: lowercase, no umlauts (e.g., 'elena', 'tom')")
     name: str = Field(description="Full name")
-    role: str = Field(default="Verdächtiger", description="Job title or relationship to victim")
+    role: str = Field(default="Suspect", description="Job title or relationship to victim")
     public_description: str = Field(default="", description="What everyone knows about this person (1 sentence)")
-    personality: str = Field(default="Zurückhaltend und beobachtend.", description="How they speak, behave, react to pressure (2-3 sentences)")
-    private_knowledge: str = Field(default="", description="Their secrets, alibi, observations, motives. For the murderer: include 'DU BIST DER MÖRDER' and full confession details")
+    personality: str = Field(default="Reserved and observant.", description="How they speak, behave, react to pressure (2-3 sentences)")
+    private_knowledge: str = Field(default="", description="Their secrets, alibi, observations, motives. For the murderer: include 'YOU ARE THE MURDERER' and full confession details")
     knows_about_others: str = Field(default="", description="What they know about other suspects (format: '- Name: knowledge')")
     
     @model_validator(mode='after')
     def fill_missing_fields(self) -> 'PersonaModel':
         """Fill in reasonable defaults for missing fields."""
         if not self.public_description:
-            self.public_description = f"{self.name} ist {self.role}."
+            self.public_description = f"{self.name} is {self.role}."
         
         if not self.private_knowledge:
-            self.private_knowledge = "Hat zur Tatzeit kein wasserdichtes Alibi."
+            self.private_knowledge = "Has no solid alibi at the time of the crime."
         
         return self
 
@@ -243,88 +243,88 @@ class ScenarioModel(BaseModel):
     def fill_missing_fields(self) -> 'ScenarioModel':
         """Fill in reasonable defaults for missing fields."""
         if not self.shared_knowledge:
-            self.shared_knowledge = f"""- {self.victim.name} wurde tot aufgefunden
-- Alle Verdächtigen waren zur Tatzeit anwesend"""
+            self.shared_knowledge = f"""- {self.victim.name} was found dead
+- All suspects were present at the time of the crime"""
         
         if not self.timeline:
-            self.timeline = "- Tatzeit: Unbekannt\n- Ermittlungen beginnen: Jetzt"
+            self.timeline = "- Time of crime: Unknown\n- Investigation begins: Now"
         
         if not self.intro_message:
-            self.intro_message = f"Willkommen zum Fall '{self.name}'. Befrage die Verdächtigen und finde den Mörder!"
+            self.intro_message = f"Welcome to the case '{self.name}'. Question the suspects and find the murderer!"
         
         return self
 
 
 # === Prompts ===
 
-BASE_SCENARIO_PROMPT = """Du bist ein kreativer Autor für Murder Mystery Spiele.
+BASE_SCENARIO_PROMPT = """You are a creative author for Murder Mystery games.
 
-Erstelle das GRUNDGERÜST eines Mordfall-Szenarios auf Deutsch.
-Die vollständigen Persona-Details werden separat generiert.
+Create the FRAMEWORK of a murder case scenario in English.
+The full persona details will be generated separately.
 
-## Deine Aufgabe:
-1. Erstelle Setting, Opfer, Lösung, Timeline
-2. Erstelle BLUEPRINTS für GENAU 4 Verdächtige (einer ist Mörder)
-3. Für jeden Blueprint: Name, Rolle, kurze Geheimniszusammenfassung
+## Your Task:
+1. Create setting, victim, solution, timeline
+2. Create BLUEPRINTS for EXACTLY 4 suspects (one is the murderer)
+3. For each blueprint: name, role, brief secret summary
 
-⚠️ KRITISCH: Du MUSST EXAKT 4 persona_blueprints erstellen!
-- Nicht 3, nicht 5 - GENAU 4 Personen!
-- Einer davon ist der Mörder (is_murderer=true)
-- Die anderen 3 sind unschuldig (is_murderer=false)
+⚠️ CRITICAL: You MUST create EXACTLY 4 persona_blueprints!
+- Not 3, not 5 - EXACTLY 4 people!
+- One of them is the murderer (is_murderer=true)
+- The other 3 are innocent (is_murderer=false)
 
-## Regeln:
-- Logisch konsistent (Alibis, Zeiten müssen passen)
-- Der Mörder muss überführbar sein
-- Kreative Settings (Weingut, Kreuzfahrt, Theater, Museum...)
+## Rules:
+- Logically consistent (alibis, times must match)
+- The murderer must be convictable
+- Creative settings (winery, cruise ship, theater, museum...)
 
-## Schwierigkeitsgrade:
-- EINFACH: Offensichtliche Hinweise
-- MITTEL: Gemischte Hinweise
-- SCHWER: Versteckte Hinweise"""
+## Difficulty Levels:
+- EASY: Obvious clues
+- MEDIUM: Mixed clues
+- HARD: Hidden clues"""
 
-PERSONA_PROMPT = """Du bist ein Charakterautor für Murder Mystery Spiele.
+PERSONA_PROMPT = """You are a character author for Murder Mystery games.
 
-Erstelle die VOLLSTÄNDIGEN Details für diese Person basierend auf dem Szenario.
+Create the COMPLETE details for this person based on the scenario.
 
-## Szenario-Kontext:
+## Scenario Context:
 {scenario_context}
 
-## Andere Verdächtige:
+## Other Suspects:
 {other_personas}
 
-## Deine Aufgabe - Erstelle Details für:
+## Your Task - Create details for:
 Name: {persona_name}
-Rolle: {persona_role}
-Ist Mörder: {is_murderer}
-Geheimnis-Zusammenfassung: {secret_summary}
+Role: {persona_role}
+Is Murderer: {is_murderer}
+Secret Summary: {secret_summary}
 
-## Regeln:
-- personality: Wie spricht/verhält sich die Person? (2-3 Sätze)
-- private_knowledge: Alle Geheimnisse, Alibi, Beobachtungen
-- knows_about_others: Was weiß diese Person über die anderen? (- Name: Wissen)
+## Rules:
+- personality: How does the person speak/behave? (2-3 sentences)
+- private_knowledge: All secrets, alibi, observations
+- knows_about_others: What does this person know about the others? (- Name: Knowledge)
 
 {murderer_instructions}"""
 
 MURDERER_INSTRUCTIONS = """
-## WICHTIG - Diese Person ist DER MÖRDER!
-private_knowledge MUSS enthalten:
-- "DU BIST DER MÖRDER" am Anfang
-- Vollständiger Tathergang (Planung, Durchführung, Vertuschung)
-- Welche Spuren wurden hinterlassen
-- Psychologischer Zustand (Schuld, Angst, Rechtfertigung)
+## IMPORTANT - This person is THE MURDERER!
+private_knowledge MUST contain:
+- "YOU ARE THE MURDERER" at the beginning
+- Complete course of events (planning, execution, cover-up)
+- What traces were left behind
+- Psychological state (guilt, fear, justification)
 
-Schwierigkeit {difficulty}:
-- EINFACH: Nervös, knickt schnell ein, zeigt Schuldgefühle
-- MITTEL: Kontrolliert aber macht Fehler unter Druck  
-- SCHWER: Perfekter Lügner, nur durch Logik überführbar"""
+Difficulty {difficulty}:
+- EASY: Nervous, breaks down quickly, shows guilt
+- MEDIUM: Controlled but makes mistakes under pressure
+- HARD: Perfect liar, only convictable through logic"""
 
 INNOCENT_INSTRUCTIONS = """
-## Diese Person ist UNSCHULDIG
-private_knowledge sollte enthalten:
-- Eigene Geheimnisse (die verdächtig wirken können)
-- Alibi zur Tatzeit
-- Beobachtungen (was haben sie gesehen/gehört?)
-- Beziehung zum Opfer"""
+## This person is INNOCENT
+private_knowledge should contain:
+- Own secrets (that may appear suspicious)
+- Alibi at time of crime
+- Observations (what did they see/hear?)
+- Relationship to the victim"""
 
 
 class ScenarioGenerator:
@@ -602,19 +602,19 @@ class ScenarioGenerator:
         """Phase 1: Generate base scenario with persona blueprints."""
         
         if user_input.strip():
-            user_prompt = f"""Erstelle ein Murder Mystery Szenario basierend auf:
+            user_prompt = f"""Create a Murder Mystery scenario based on:
 
 {user_input}
 
-Schwierigkeit: {difficulty.upper()}
-Sprache: Deutsch"""
+Difficulty: {difficulty.upper()}
+Language: English"""
         else:
-            user_prompt = f"""Erstelle ein zufälliges, kreatives Murder Mystery Szenario.
+            user_prompt = f"""Create a random, creative Murder Mystery scenario.
 
-Schwierigkeit: {difficulty.upper()}
-Sprache: Deutsch
+Difficulty: {difficulty.upper()}
+Language: English
 
-Überrasche mich mit einem ungewöhnlichen Setting!"""
+Surprise me with an unusual setting!"""
         
         messages = [
             SystemMessage(content=BASE_SCENARIO_PROMPT),
@@ -634,12 +634,12 @@ Sprache: Deutsch
         """Phase 2: Generate all personas in parallel."""
         
         # Build context for persona generation
-        scenario_context = f"""Fall: {base_scenario.name}
+        scenario_context = f"""Case: {base_scenario.name}
 Setting: {base_scenario.setting}
-Opfer: {base_scenario.victim.name} ({base_scenario.victim.role})
+Victim: {base_scenario.victim.name} ({base_scenario.victim.role})
 Timeline: {base_scenario.timeline}
-Tatwaffe: {base_scenario.solution.weapon}
-Motiv des Mörders: {base_scenario.solution.motive}"""
+Murder weapon: {base_scenario.solution.weapon}
+Murderer's motive: {base_scenario.solution.motive}"""
         
         # List of other personas for cross-references
         other_personas_list = "\n".join([
@@ -698,13 +698,13 @@ Motiv des Mörders: {base_scenario.solution.motive}"""
             other_personas=other_personas,
             persona_name=blueprint.name,
             persona_role=blueprint.role,
-            is_murderer="JA - DU BIST DER MÖRDER!" if blueprint.is_murderer else "Nein",
+            is_murderer="YES - YOU ARE THE MURDERER!" if blueprint.is_murderer else "No",
             secret_summary=blueprint.secret_summary,
             murderer_instructions=instructions
         )
         
         messages = [
-            SystemMessage(content="Du erstellst detaillierte Charakterprofile für Murder Mystery Spiele auf Deutsch."),
+            SystemMessage(content="You create detailed character profiles for Murder Mystery games in English."),
             HumanMessage(content=prompt)
         ]
         

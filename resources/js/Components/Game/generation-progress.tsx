@@ -19,32 +19,32 @@ interface ProgressStep {
 const steps: ProgressStep[] = [
     {
         stage: ['started', 'generating_scenario'],
-        label: 'Erstelle Szenario',
+        label: 'Creating Scenario',
         icon: <Sparkles className="h-4 w-4" />,
     },
     {
         stage: ['scenario_complete', 'generating_personas'],
-        label: 'Generiere Charaktere',
+        label: 'Generating Characters',
         icon: <User className="h-4 w-4" />,
     },
     {
         stage: ['persona_complete'],
-        label: 'Charaktere werden erstellt',
+        label: 'Building Characters',
         icon: <User className="h-4 w-4" />,
     },
     {
         stage: ['generating_images'],
-        label: 'Generiere Tatort-Bilder',
+        label: 'Generating Crime Scene Photos',
         icon: <Image className="h-4 w-4" />,
     },
     {
         stage: ['initializing_game'],
-        label: 'Initialisiere Spiel',
+        label: 'Initializing Game',
         icon: <Skull className="h-4 w-4" />,
     },
     {
         stage: ['complete'],
-        label: 'Fertig!',
+        label: 'Complete!',
         icon: <Check className="h-4 w-4" />,
     },
 ];
@@ -99,17 +99,17 @@ export function GenerationProgressDisplay({ progress }: GenerationProgressProps)
                     {isError ? (
                         <>
                             <AlertCircle className="h-5 w-5 text-red-500" />
-                            Fehler
+                            Error
                         </>
                     ) : (
                         <>
                             <Loader2 className="h-5 w-5 animate-spin text-red-500" />
-                            Generiere Mystery...
+                            Generating Mystery...
                         </>
                     )}
                 </h3>
                 <p className="text-sm text-zinc-400">
-                    {progress.message || 'Bitte warten...'}
+                    {progress.message || 'Please wait...'}
                 </p>
             </div>
             
@@ -128,7 +128,7 @@ export function GenerationProgressDisplay({ progress }: GenerationProgressProps)
                     <span>{progress.progress}%</span>
                     <span>
                         {progress.stage === 'persona_complete' && progress.personaIndex !== undefined && progress.totalPersonas
-                            ? `Charakter ${progress.personaIndex + 1}/${progress.totalPersonas}`
+                            ? `Character ${progress.personaIndex + 1}/${progress.totalPersonas}`
                             : ''
                         }
                     </span>
@@ -189,7 +189,7 @@ export function GenerationProgressDisplay({ progress }: GenerationProgressProps)
             
             {/* Tip */}
             <p className="text-xs text-zinc-600 text-center italic">
-                KI-generierte Szenarien sind einzigartig - dies kann 15-30 Sekunden dauern
+                AI-generated scenarios are unique - this may take 15-30 seconds
             </p>
         </div>
     );
